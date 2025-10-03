@@ -87,35 +87,73 @@
 
 1.  **프로젝트 클론**
     ```sh
-    git clone [https://github.com/your-username/your-repository-name.git](https://github.com/your-username/your-repository-name.git)
-    cd your-repository-name
+    git clone https://github.com/ley38107/chatbot.git
+    cd chatbot
     ```
 
-2.  **Frontend 설정**
+2.  **Backend 설정**
     ```sh
-    cd frontend
-    npm install
-    npm start
-    ```
-
-3.  **Backend 설정**
-    ```sh
-    cd backend
+    # 가상환경 생성 및 활성화
+    python -m venv venv
+    venv\Scripts\activate  # Windows
+    source venv/bin/activate  # macOS/Linux
+    
+    # 의존성 설치
     pip install -r requirements.txt
     ```
 
-4.  **환경변수 설정**
-    `backend` 디렉토리에 `.env` 파일을 생성하고 아래 내용을 채워주세요.
-    ```env
-    PINECONE_API_KEY="YOUR_PINECONE_API_KEY"
-    NAVER_CLIENT_ID="YOUR_NAVER_API_CLIENT_ID"
-    NAVER_CLIENT_SECRET="YOUR_NAVER_API_CLIENT_SECRET"
+3.  **API 서버 실행**
+    ```sh
+    python api_server.py
     ```
 
-5.  **Backend 서버 실행**
+4.  **API 테스트**
     ```sh
-    uvicorn main:app --reload
+    python chat_client.py
     ```
+
+<br>
+
+## 📁 프로젝트 구조
+
+```
+chatbot/
+├── .gitignore                    # Git 제외 파일
+├── README.md                     # 프로젝트 문서
+├── requirements.txt              # Python 의존성
+├── api_server.py                 # FastAPI 서버
+├── chat_client.py                # API 클라이언트
+└── hyperclova_local_client.py    # HyperCLOVA X SEED 클라이언트
+```
+
+<br>
+
+## 🔧 API 사용법
+
+### 서버 실행
+```bash
+python api_server.py
+```
+
+### API 엔드포인트
+- **POST** `/chat` - 채팅 API
+- **GET** `/docs` - API 문서 (http://localhost:8000/docs)
+
+### 요청 예시
+```json
+{
+  "question": "안녕하세요!"
+}
+```
+
+### 응답 예시
+```json
+{
+  "answer": "안녕하세요!",
+  "model_name": "naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-0.5B",
+  "response_time": 1.23
+}
+```
 
 <br>
 
