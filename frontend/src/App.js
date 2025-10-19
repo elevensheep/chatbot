@@ -96,15 +96,16 @@ function App() {
         return updated;
       });
       
-      // 백엔드 API 호출 (/search 엔드포인트 - 벡터 검색만)
-      const response = await fetch(`${API_URL}/search`, {
+      // 백엔드 API 호출 (/chat 엔드포인트 - LLM 답변 생성)
+      const response = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           query: text,
-          top_k: 3
+          top_k: 3,
+          return_sources: true  // 출처 정보도 함께 반환
         })
       });
       
@@ -116,18 +117,19 @@ function App() {
       
       console.log('✅ API 응답 받음:', data);
       
-      // 검색 결과를 포맷팅
-      let answerText = '관련 정보를 찾았습니다:\n\n';
-      if (data.results && data.results.length > 0) {
-        data.results.forEach((result, index) => {
-          const subject = result.metadata?.subject || '알 수 없음';
-          const type = result.metadata?.type || '';
-          const similarity = (result.similarity * 100).toFixed(1);
-          answerText += `${index + 1}. ${subject} (${type}) - 관련도: ${similarity}%\n`;
-          answerText += `${result.text.substring(0, 200)}...\n\n`;
+      // LLM이 생성한 자연스러운 답변 사용
+      let answerText = data.answer || '죄송합니다. 답변을 생성할 수 없습니다.';
+      
+      // (선택사항) 출처 정보 추가
+      if (data.sources && data.sources.length > 0) {
+        answerText += '\n\n📚 참고한 수업계획서:\n';
+        data.sources.forEach((source, index) => {
+          const subject = source.metadata?.subject || '알 수 없음';
+          const type = source.metadata?.type || '';
+          answerText += `${index + 1}. ${subject}`;
+          if (type) answerText += ` (${type})`;
+          answerText += '\n';
         });
-      } else {
-        answerText = '죄송합니다. 관련 정보를 찾을 수 없습니다.';
       }
       
       // 로딩 메시지를 실제 답변으로 교체
