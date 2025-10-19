@@ -28,9 +28,17 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # 작업 디렉토리 설정
 WORKDIR /app
 
+# 캐시 디렉토리 생성 및 권한 설정
+RUN mkdir -p /app/.cache && chown -R appuser:appuser /app/.cache
+
 # 가상환경 복사
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Hugging Face 캐시 디렉토리 설정
+ENV HF_HOME=/app/.cache
+ENV TRANSFORMERS_CACHE=/app/.cache
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache
 
 # 애플리케이션 코드 복사
 COPY --chown=appuser:appuser . .

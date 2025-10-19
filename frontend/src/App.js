@@ -37,7 +37,7 @@ function App() {
     currentSessionIdxRef.current = currentSessionIdx;
   }, [currentSessionIdx]);
 
-  function handleSend(text) {
+  async function handleSend(text) {
     if (pendingSession) {
       const newSession = {
         ...pendingSession,
@@ -51,18 +51,15 @@ function App() {
         const updated = [...prev, newSession];
         setCurrentSessionIdx(newSessionIdx);
         setPendingSession(null);
-        setTimeout(() => {
-          setSessions(prev2 => {
-            const updated2 = [...prev2];
-            const botMsg = { id: idCounter++, from: 'bot', text: `질문: "${text}" 에 대해 답변을 준비 중입니다. (예시 응답)`, ts: Date.now() };
-            updated2[newSessionIdx].messages = [...updated2[newSessionIdx].messages, botMsg];
-            return updated2;
-          });
-        }, 100);
+        
+        // 백엔드 API 호출
+        callBackendAPI(text, newSessionIdx);
+        
         return updated;
       });
       return;
     }
+    
     const idx = currentSessionIdxRef.current;
     setSessions(prev => {
       const updated = prev.map((session, i) =>
@@ -72,16 +69,102 @@ function App() {
       );
       return updated;
     });
-    setTimeout(() => {
-      setSessions(prev2 => {
-        const updated2 = prev2.map((session, i) =>
-          i === idx
-            ? { ...session, messages: [...session.messages, { id: idCounter++, from: 'bot', text: `질문: "${text}" 에 대해 답변을 준비 중입니다. (예시 응답)`, ts: Date.now() }] }
-            : session
-        );
-        return updated2;
+    
+    // 백엔드 API 호출
+    callBackendAPI(text, idx);
+  }
+  
+  // 백엔드 API 호출 함수
+  async function callBackendAPI(text, sessionIdx) {
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    
+    console.log('🚀 백엔드 API 호출 시작:', text);
+    console.log('📡 API URL:', API_URL);
+    
+    try {
+      // 로딩 메시지 추가
+      setSessions(prev => {
+        const updated = [...prev];
+        const loadingMsg = { 
+          id: idCounter++, 
+          from: 'bot', 
+          text: '답변을 생성 중입니다...', 
+          ts: Date.now(),
+          isLoading: true 
+        };
+        updated[sessionIdx].messages = [...updated[sessionIdx].messages, loadingMsg];
+        return updated;
       });
-    }, 100);
+      
+      // 백엔드 API 호출 (/search 엔드포인트 - 벡터 검색만)
+      const response = await fetch(`${API_URL}/search`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: text,
+          top_k: 3
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API 오류: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      console.log('✅ API 응답 받음:', data);
+      
+      // 검색 결과를 포맷팅
+      let answerText = '관련 정보를 찾았습니다:\n\n';
+      if (data.results && data.results.length > 0) {
+        data.results.forEach((result, index) => {
+          const subject = result.metadata?.subject || '알 수 없음';
+          const type = result.metadata?.type || '';
+          const similarity = (result.similarity * 100).toFixed(1);
+          answerText += `${index + 1}. ${subject} (${type}) - 관련도: ${similarity}%\n`;
+          answerText += `${result.text.substring(0, 200)}...\n\n`;
+        });
+      } else {
+        answerText = '죄송합니다. 관련 정보를 찾을 수 없습니다.';
+      }
+      
+      // 로딩 메시지를 실제 답변으로 교체
+      setSessions(prev => {
+        const updated = [...prev];
+        const messages = updated[sessionIdx].messages;
+        // 마지막 로딩 메시지 제거
+        const filteredMessages = messages.filter(msg => !msg.isLoading);
+        // 실제 답변 추가
+        const botMsg = { 
+          id: idCounter++, 
+          from: 'bot', 
+          text: answerText, 
+          ts: Date.now() 
+        };
+        updated[sessionIdx].messages = [...filteredMessages, botMsg];
+        return updated;
+      });
+      
+    } catch (error) {
+      console.error('API 호출 오류:', error);
+      
+      // 오류 메시지 표시
+      setSessions(prev => {
+        const updated = [...prev];
+        const messages = updated[sessionIdx].messages;
+        const filteredMessages = messages.filter(msg => !msg.isLoading);
+        const errorMsg = { 
+          id: idCounter++, 
+          from: 'bot', 
+          text: `죄송합니다. 오류가 발생했습니다: ${error.message}\n\n백엔드 서버가 실행 중인지 확인해주세요. (http://localhost:5000)`, 
+          ts: Date.now() 
+        };
+        updated[sessionIdx].messages = [...filteredMessages, errorMsg];
+        return updated;
+      });
+    }
   }
 
   function handleSelectSession(idx) {

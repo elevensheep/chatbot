@@ -13,6 +13,10 @@ RUN npm ci
 # 소스 코드 복사
 COPY . .
 
+# 환경변수 설정 (빌드 타임)
+# 브라우저에서 접근 가능한 localhost 주소 사용
+ENV REACT_APP_API_URL=http://localhost:5000
+
 # 프로덕션 빌드
 RUN npm run build
 

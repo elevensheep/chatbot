@@ -11,6 +11,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - ENVIRONMENT=development
+      # HyperCLOVA X API 키
+      - NAVER_CLOVA_API_KEY=${NAVER_CLOVA_API_KEY}
+      - NAVER_CLOVA_API_KEY_PRIMARY=${NAVER_CLOVA_API_KEY_PRIMARY}
+      - NAVER_CLOVA_REQUEST_ID=${NAVER_CLOVA_REQUEST_ID}
     volumes:
       - ./backend:/app
       - backend_cache:/app/.cache
