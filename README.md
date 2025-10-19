@@ -105,11 +105,18 @@
     ```
 
 4.  **환경변수 설정**
-    `backend` 디렉토리에 `.env` 파일을 생성하고 아래 내용을 채워주세요.
+    `backend` 디렉토리에 `.env` 파일을 생성합니다.
+    ```sh
+    cd backend
+    cp .env.example .env
+    ```
+    
+    `.env` 파일을 열고 HyperCLOVA X API 키를 입력하세요:
     ```env
-    PINECONE_API_KEY="YOUR_PINECONE_API_KEY"
-    NAVER_CLIENT_ID="YOUR_NAVER_API_CLIENT_ID"
-    NAVER_CLIENT_SECRET="YOUR_NAVER_API_CLIENT_SECRET"
+    # HyperCLOVA X API 키 (실제 값으로 변경)
+    NAVER_CLOVA_API_KEY=your-actual-api-key
+    NAVER_CLOVA_API_KEY_PRIMARY=your-actual-api-key-primary
+    NAVER_CLOVA_REQUEST_ID=your-actual-request-id
     ```
 
 5.  **Backend 서버 실행**
