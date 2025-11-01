@@ -8,6 +8,8 @@ from config import settings
 from direct_pinecone_service import get_vectorstore_service
 from hyperclova_client import get_hyperclova_client
 from mangum import Mangum
+from database import db_instance
+from routers import auth
 
 # 로깅 설정
 logging.basicConfig(
@@ -40,6 +42,16 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# 라우터 등록
+app.include_router(auth.router)
+
+# MongoDB 연결 이벤트
+@app.on_event("startup")
+async def startup_db_client():
+    """앱 시작 시 MongoDB 연결"""
+    await db_instance.connect_db()
+    logger.info("MongoDB Atlas 연결 완료")
 
 @app.get("/")
 async def root():
