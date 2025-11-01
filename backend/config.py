@@ -71,7 +71,10 @@ class Settings:
     
     # 보안 설정
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-this")
-    ALLOWED_ORIGINS: list = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000").split(",")
+    
+    # CORS 설정 - 기본 개발 origins
+    DEFAULT_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000"
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", DEFAULT_ORIGINS)  # 환경변수로 우선 설정 가능
     
     # 로깅 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
@@ -100,29 +103,49 @@ class Settings:
     
     def __init__(self):
         """설정 초기화 시 Parameter Store에서 값 가져오기"""
-        # Parameter Store 파라미터 이름들
-        pinecone_api_key_param = os.getenv("PINECONE_API_KEY_PARAM")
-        pinecone_index_name_param = os.getenv("PINECONE_INDEX_NAME_PARAM")
-        hyperclova_api_key_param = os.getenv("HYPERCLOVA_API_KEY_PARAM")
-        
-        # Parameter Store에서 값 가져오기 (환경변수가 없으면 기본값 사용)
-        if pinecone_api_key_param:
-            self.PINECONE_API_KEY = get_parameter_store_value(
-                pinecone_api_key_param, 
-                self.PINECONE_API_KEY
-            )
-        
-        if pinecone_index_name_param:
-            self.PINECONE_INDEX_NAME = get_parameter_store_value(
-                pinecone_index_name_param, 
-                self.PINECONE_INDEX_NAME
-            )
-        
-        if hyperclova_api_key_param:
-            self.HYPERCLOVA_API_KEY = get_parameter_store_value(
-                hyperclova_api_key_param, 
-                self.HYPERCLOVA_API_KEY
-            )
+        try:
+            # Parameter Store 파라미터 이름들
+            pinecone_api_key_param = os.getenv("PINECONE_API_KEY_PARAM")
+            pinecone_index_name_param = os.getenv("PINECONE_INDEX_NAME_PARAM")
+            hyperclova_api_key_param = os.getenv("HYPERCLOVA_API_KEY_PARAM")
+            
+            # Parameter Store에서 값 가져오기 (환경변수가 없으면 기본값 사용)
+            if pinecone_api_key_param:
+                try:
+                    self.PINECONE_API_KEY = get_parameter_store_value(
+                        pinecone_api_key_param, 
+                        self.PINECONE_API_KEY
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not get PINECONE_API_KEY from Parameter Store: {e}")
+            
+            if pinecone_index_name_param:
+                try:
+                    self.PINECONE_INDEX_NAME = get_parameter_store_value(
+                        pinecone_index_name_param, 
+                        self.PINECONE_INDEX_NAME
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not get PINECONE_INDEX_NAME from Parameter Store: {e}")
+            
+            if hyperclova_api_key_param:
+                try:
+                    self.HYPERCLOVA_API_KEY = get_parameter_store_value(
+                        hyperclova_api_key_param, 
+                        self.HYPERCLOVA_API_KEY
+                    )
+                except Exception as e:
+                    print(f"Warning: Could not get HYPERCLOVA_API_KEY from Parameter Store: {e}")
+            
+            # ALLOWED_ORIGINS를 리스트로 변환
+            if isinstance(self.ALLOWED_ORIGINS, str):
+                self.ALLOWED_ORIGINS = [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
+                
+        except Exception as e:
+            print(f"Warning: Settings initialization error: {e}")
+            # 기본값 사용 (문자열을 리스트로 변환)
+            if isinstance(self.ALLOWED_ORIGINS, str):
+                self.ALLOWED_ORIGINS = self.ALLOWED_ORIGINS.split(",")
     
     # 모니터링 설정
     ENABLE_METRICS: bool = os.getenv("ENABLE_METRICS", "true").lower() == "true"

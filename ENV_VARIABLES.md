@@ -81,6 +81,9 @@ JWT_SECRET_KEY=your-jwt-secret-key
 SESSION_SECRET=your-session-secret
 
 # CORS 설정
+# PROD_HOST는 Parameter Store에서 자동으로 가져와 ALLOWED_ORIGINS에 추가됨
+# Parameter Store 파라미터: /chatbot/prod/prod_host
+PROD_HOST_PARAM=/chatbot/prod/prod_host  # Parameter Store에서 가져올 파라미터 이름 (기본값)
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,https://yourdomain.com
 CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
 ```

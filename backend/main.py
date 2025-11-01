@@ -176,7 +176,28 @@ async def chat(request: ChatRequest):
         )
 
 # Lambda 핸들러 생성
-lambda_handler = Mangum(app)
+def lambda_handler(event, context):
+    """Lambda 핸들러 래퍼"""
+    try:
+        logger.info(f"Lambda handler invoked")
+        logger.info(f"Event path: {event.get('path')}")
+        logger.info(f"Event method: {event.get('httpMethod')}")
+        logger.info(f"Settings ALLOWED_ORIGINS: {settings.ALLOWED_ORIGINS}")
+        
+        # Mangum 핸들러 호출
+        mangum_handler = Mangum(app, lifespan="auto")
+        response = mangum_handler(event, context)
+        logger.info(f"Lambda handler response: {response}")
+        return response
+    except Exception as e:
+        logger.error(f"Lambda handler error: {str(e)}", exc_info=True)
+        # Mangum 형식에 맞게 반환
+        import json
+        return {
+            "statusCode": 500,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({"error": "Internal server error", "detail": str(e)})
+        }
 
 if __name__ == "__main__":
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")

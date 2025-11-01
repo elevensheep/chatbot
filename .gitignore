@@ -114,3 +114,8 @@ jspm_packages/
 
 # DynamoDB Local files
 .dynamodb/
+
+excel_parser/*
+excel_data/*
+excel_data/
+excel_parser/
