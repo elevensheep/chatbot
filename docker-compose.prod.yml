@@ -2,17 +2,40 @@ version: '3.8'
 
 services:
   backend:
-    image: ghcr.io/elevensheep/chatbot/backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
       - "5000:5000"
     environment:
       - PYTHONUNBUFFERED=1
       - ENVIRONMENT=production
+      - DEBUG=false
       - BACKEND_HOST=0.0.0.0
       - BACKEND_PORT=5000
+      - BACKEND_WORKERS=${BACKEND_WORKERS:-1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # 필수 환경 변수 (환경변수에서 가져옴)
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-chatbot_db}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-chatbot-courses}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      # CORS 설정
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://bu-chatbot.co.kr}
+      # 모델 설정
+      - SEED_MODEL_PATH=${SEED_MODEL_PATH:-naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-1.5B}
+      - SEED_DEVICE=${SEED_DEVICE:-cpu}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - SEED_LOAD_IN_8BIT=${SEED_LOAD_IN_8BIT:-false}
+      - SEED_LOAD_IN_4BIT=${SEED_LOAD_IN_4BIT:-false}
+      # API 문서 설정 (프로덕션에서는 비활성화 권장)
+      - ENABLE_DOCS=${ENABLE_DOCS:-false}
     restart: always
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -22,18 +45,20 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024M
-          cpus: '0.5'
+          memory: 8G
+          cpus: '2.0'
         reservations:
-          memory: 512M
-          cpus: '0.25'
+          memory: 4G
+          cpus: '1.0'
 
   frontend:
-    image: ghcr.io/elevensheep/chatbot/frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_API_URL=https://qf8ki1v4e9.execute-api.ap-southeast-2.amazonaws.com/prod
+      - REACT_APP_API_URL=${REACT_APP_API_URL:-http://backend:5000/api}
       - REACT_APP_ENV=production
       - NODE_ENV=production
     depends_on:

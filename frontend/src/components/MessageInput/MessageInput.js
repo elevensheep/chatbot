@@ -12,7 +12,8 @@ export default function MessageInput({ onSend, sidebarOpen }) {
   };
 
   function send() {
-    const t = text.trim();
+    // 줄바꿈을 공백으로 변환하고 앞뒤 공백 제거
+    const t = text.replace(/\n/g, ' ').trim();
     if (!t) return;
     onSend(t);
     setText('');

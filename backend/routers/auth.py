@@ -149,6 +149,64 @@ async def verify_email_endpoint(request: EmailVerificationConfirm):
 
 
 @router.post(
+    "/verify-email-token",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="이메일 토큰 검증 (이메일 링크용)",
+    description="이메일 링크를 통해 받은 인증 토큰을 검증합니다."
+)
+async def verify_email_token_endpoint(request: EmailVerificationConfirm):
+    """
+    이메일 토큰 검증 엔드포인트 (이메일 링크 클릭 시 사용)
+    
+    프론트엔드 호환성을 위해 응답 형식을 { email: "..." } 형태로 반환합니다.
+
+    - **token**: 이메일로 받은 인증 토큰
+    """
+    try:
+        # 1. 토큰 검증
+        email = await verify_token(request.token)
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "INVALID_TOKEN",
+                        "message": "유효하지 않거나 만료된 인증 토큰입니다",
+                        "details": "인증 링크를 다시 확인하거나 새로운 인증 이메일을 요청해주세요"
+                    }
+                }
+            )
+
+        logger.info(f"이메일 토큰 검증 완료: {email}")
+
+        # 프론트엔드 호환성을 위해 간단한 형식으로 반환
+        return {
+            "email": email,
+            "verified": True
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.error(f"이메일 토큰 검증 중 오류: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "이메일 인증 처리 중 오류가 발생했습니다",
+                    "details": str(e)
+                }
+            }
+        )
+
+
+@router.post(
     "/signup",
     response_model=dict,
     status_code=status.HTTP_201_CREATED,

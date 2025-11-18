@@ -40,12 +40,20 @@ function MainApp() {
   const [currentPage, setCurrentPage] = useState('chat'); // 페이지 상태 추가
   const [isLoading, setIsLoading] = useState(false); // 로딩 상태 추가
   const [loadingMessage, setLoadingMessage] = useState(''); // 로딩 메시지
+  const isRequestingRef = useRef(false); // 중복 요청 방지 플래그
 
   React.useEffect(() => {
     currentSessionIdxRef.current = currentSessionIdx;
   }, [currentSessionIdx]);
 
   async function callChatAPI(userMessage) {
+    // 이미 요청 중이면 중복 요청 방지
+    if (isRequestingRef.current) {
+      console.warn('이미 요청이 진행 중입니다. 중복 요청을 무시합니다.');
+      return '요청이 이미 진행 중입니다. 잠시만 기다려주세요.';
+    }
+    
+    isRequestingRef.current = true;
     setIsLoading(true);
     setLoadingMessage('질문을 분석하고 있습니다...');
     
@@ -69,7 +77,9 @@ function MainApp() {
           query: userMessage,
           k: 3,
           include_sources: true
-        })
+        }),
+        // 타임아웃 설정 (모델 로딩 시간 고려)
+        signal: AbortSignal.timeout(300000) // 5분 타임아웃
       });
 
       if (!response.ok) {
@@ -80,39 +90,53 @@ function MainApp() {
       return data.answer || '답변을 생성할 수 없습니다.';
     } catch (error) {
       console.error('백엔드 API 호출 오류:', error);
+      
+      // 타임아웃 에러 처리
+      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+        return '요청 시간이 초과되었습니다. 모델이 로딩 중일 수 있습니다. 잠시 후 다시 시도해주세요.';
+      }
+      
+      // 네트워크 에러 처리
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        return '서버에 연결할 수 없습니다. 백엔드 서버가 실행 중인지 확인해주세요.';
+      }
+      
       return `죄송합니다. 서버와 통신 중 오류가 발생했습니다: ${error.message}`;
     } finally {
       setIsLoading(false);
       setLoadingMessage('');
+      isRequestingRef.current = false; // 요청 완료 후 플래그 해제
     }
   }
 
   function handleSend(text) {
+    // 줄바꿈을 공백으로 변환 (이미 MessageInput에서 처리되지만 이중 보장)
+    const cleanText = text.replace(/\n/g, ' ').trim();
+    
     if (pendingSession) {
       const newSession = {
         ...pendingSession,
         messages: [
           ...pendingSession.messages,
-          { id: generateMessageId(), from: 'user', text, ts: Date.now() }
+          { id: generateMessageId(), from: 'user', text: cleanText, ts: Date.now() }
         ]
       };
-      setSessions(prev => {
-        const newSessionIdx = prev.length;
-        const updated = [...prev, newSession];
-        setCurrentSessionIdx(newSessionIdx);
-        setPendingSession(null);
-        
-        // 백엔드 API 호출
-        callChatAPI(text).then(botResponse => {
-          setSessions(prev2 => {
-            const updated2 = [...prev2];
-            const botMsg = { id: generateMessageId(), from: 'bot', text: botResponse, ts: Date.now() };
+      const newSessionIdx = sessions.length;
+      
+      setSessions(prev => [...prev, newSession]);
+      setCurrentSessionIdx(newSessionIdx);
+      setPendingSession(null);
+      
+      // 백엔드 API 호출 (setSessions 밖에서 호출)
+      callChatAPI(cleanText).then(botResponse => {
+        setSessions(prev2 => {
+          const updated2 = [...prev2];
+          const botMsg = { id: generateMessageId(), from: 'bot', text: botResponse, ts: Date.now() };
+          if (updated2[newSessionIdx]) {
             updated2[newSessionIdx].messages = [...updated2[newSessionIdx].messages, botMsg];
-            return updated2;
-          });
+          }
+          return updated2;
         });
-        
-        return updated;
       });
       return;
     }
@@ -120,24 +144,24 @@ function MainApp() {
     const idx = currentSessionIdxRef.current;
     const loadingMsgId = generateMessageId();
     
+    // 사용자 메시지 추가
     setSessions(prev => {
-      const updated = prev.map((session, i) =>
+      return prev.map((session, i) =>
         i === idx
           ? { 
               ...session, 
               messages: [
                 ...session.messages, 
-                { id: generateMessageId(), from: 'user', text, ts: Date.now() },
+                { id: generateMessageId(), from: 'user', text: cleanText, ts: Date.now() },
                 { id: loadingMsgId, from: 'bot', text: '답변을 생성하는 중...', ts: Date.now(), isLoading: true }
               ] 
             }
           : session
       );
-      return updated;
     });
     
-    // 백엔드 API 호출
-    callChatAPI(text).then(botResponse => {
+    // 백엔드 API 호출 (setSessions 밖에서 호출)
+    callChatAPI(cleanText).then(botResponse => {
       setSessions(prev2 => {
         const updated2 = prev2.map((session, i) => {
           if (i === idx) {

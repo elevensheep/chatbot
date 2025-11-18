@@ -28,7 +28,9 @@ export const apiCall = async (endpoint, options = {}) => {
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      // 백엔드 에러 응답 형식: { detail: { error: { message: "..." } } } 또는 { detail: { message: "..." } }
+      const errorMessage = errorData.detail?.error?.message || errorData.detail?.message || errorData.message || `HTTP error! status: ${response.status}`;
+      throw new Error(errorMessage);
     }
     
     return await response.json();
@@ -58,7 +60,7 @@ export const authAPI = {
 
   // 이메일 인증번호 발송
   sendVerificationEmail: async (email) => {
-    return apiCall('/auth/send-verification', {
+    return apiCall('/auth/send-verification-email', {
       method: 'POST',
       body: JSON.stringify({ email }),
     });
