@@ -1,9 +1,8 @@
-from fastapi import FastAPI, HTTPException, APIRouter, Request
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from pydantic import BaseModel
 import uvicorn
 import logging
 import os
@@ -11,7 +10,7 @@ from config import settings
 from direct_pinecone_service import get_vectorstore_service
 from hyperclova_client import get_hyperclova_client
 from database import db_instance
-from routers import auth
+from routers import auth, conversations
 
 # 로깅 설정
 logging.basicConfig(
@@ -186,6 +185,7 @@ router = APIRouter(prefix=settings.API_PREFIX)
 
 # 라우터 등록
 app.include_router(auth.router, prefix=settings.API_PREFIX)
+app.include_router(conversations.router, prefix=settings.API_PREFIX)
 
 # MongoDB 연결 이벤트
 @app.on_event("startup")
@@ -214,13 +214,6 @@ async def root():
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT
     }
-
-@router.get("/conversations")
-async def get_conversations():
-    """대화 목록 조회 (임시 구현)"""
-    # TODO: 실제 데이터베이스에서 대화 목록 조회
-    # 프론트엔드에서 배열을 기대하므로 배열을 반환
-    return []
 
 @router.get("/health")
 async def health_check():
@@ -308,104 +301,12 @@ async def metrics():
     """메트릭 엔드포인트 (프로덕션에서는 Prometheus 등 사용)"""
     if not settings.ENABLE_METRICS:
         return {"message": "Metrics disabled"}
-    
+
     return {
         "environment": settings.ENVIRONMENT,
         "debug": settings.DEBUG,
         "log_level": settings.LOG_LEVEL
     }
-
-
-# 요청/응답 모델
-class ChatRequest(BaseModel):
-    """채팅 요청 모델"""
-    query: str
-    k: int = 3  # 검색할 문서 수
-    include_sources: bool = True  # 출처 포함 여부
-
-
-class ChatResponse(BaseModel):
-    """채팅 응답 모델"""
-    answer: str
-    sources: list = []
-
-
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """
-    수업계획서 기반 챗봇 엔드포인트
-    
-    1. 질문 의도 분류 (수업 관련 vs 일상 대화)
-    2. 수업 관련: PINECONE 검색 + HyperCLOVA 직접 답변
-    3. 일상 대화: HyperCLOVA 직접 답변
-    """
-    try:
-        logger.info(f"채팅 요청: {request.query}")
-        
-        # HyperCLOVA 클라이언트 초기화
-        hyperclova = get_hyperclova_client()
-        
-        # 1. 질문 의도 분류 (비동기)
-        intent = await hyperclova.classify_intent(request.query)
-        logger.info(f"질문 의도: {intent}")
-        
-        # 2. 일상 대화인 경우 바로 답변 (비동기)
-        if intent == 'casual_chat':
-            logger.info("일상 대화로 분류 - 직접 답변 생성")
-            answer = await hyperclova.generate_casual_answer(request.query)
-            
-            return ChatResponse(
-                answer=answer,
-                sources=[]
-            )
-        
-        # 3. PINECONE 벡터 검색 (비동기)
-        logger.info(f"{intent} 분류 - 벡터 검색 수행")
-        
-        vectorstore = get_vectorstore_service()
-        search_results = await vectorstore.similarity_search(
-            query=request.query,
-            k=request.k
-        )
-        
-        if not search_results:
-            return ChatResponse(
-                answer="죄송합니다. 관련 수업 정보를 찾을 수 없습니다. 다른 방식으로 질문해주시겠어요?",
-                sources=[]
-            )
-        
-        logger.info(f"검색된 문서 수: {len(search_results)}")
-        
-        # 4. HyperCLOVA가 직접 질문을 이해하고 답변 생성 (비동기)
-        answer = await hyperclova.generate_answer(
-            query=request.query,
-            context_docs=search_results
-        )
-        
-        # 응답 구성
-        sources = []
-        if request.include_sources:
-            for result in search_results:
-                sources.append({
-                    "course_name": result["metadata"].get("course_name", ""),
-                    "professor": result["metadata"].get("professor", ""),
-                    "section": result["metadata"].get("section", ""),
-                    "content_preview": result["page_content"][:200] + "..."
-                })
-        
-        logger.info("답변 생성 완료")
-        
-        return ChatResponse(
-            answer=answer,
-            sources=sources
-        )
-        
-    except Exception as e:
-        logger.error(f"채팅 처리 중 오류 발생: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, 
-            detail="서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
-        )
 
 app.include_router(router)
 

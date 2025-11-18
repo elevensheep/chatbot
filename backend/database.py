@@ -85,3 +85,5 @@ class Collections:
     COURSES = "courses"
     CHAT_HISTORY = "chat_history"
     EMAIL_VERIFICATIONS = "email_verifications"
+    CONVERSATIONS = "conversations"  # 대화방
+    MESSAGES = "messages"  # 메시지
