@@ -60,10 +60,12 @@ export default function Signup({ onSignup, onBack }) {
       }
     } catch (error) {
       console.error('Verification email failed:', error);
-      setError('인증번호 발송에 실패했습니다. 다시 시도해주세요.');
+      // 백엔드 에러 메시지 표시 (이미 등록된 이메일 등)
+      const errorMessage = error.message || '인증번호 발송에 실패했습니다. 다시 시도해주세요.';
+      setError(errorMessage);
       
-      // 개발용 폴백: API 실패 시에도 임시 코드 생성
-      if (process.env.NODE_ENV === 'development') {
+      // 개발용 폴백: API 실패 시에도 임시 코드 생성 (409 에러가 아닌 경우에만)
+      if (process.env.NODE_ENV === 'development' && !errorMessage.includes('이미 등록된')) {
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         setSentCode(code);
         alert(`개발 모드: 인증번호 ${code}`);

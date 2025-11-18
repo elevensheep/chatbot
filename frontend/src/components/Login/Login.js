@@ -22,8 +22,10 @@ export default function Login({ onLogin, onSignup, onBack }) {
       const response = await authAPI.login(email, password);
       
       // 로그인 성공시 토큰을 localStorage에 저장
-      if (response.token) {
-        localStorage.setItem('authToken', response.token);
+      // 백엔드 응답 형식: { success: true, data: { access_token: "...", ... } }
+      if (response.success && response.data?.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+        localStorage.setItem('authToken', response.data.access_token); // 호환성을 위해 유지
         localStorage.setItem('userEmail', email);
       }
       

@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException, APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, APIRouter, Request
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 import uvicorn
 import logging
+import os
 from config import settings
 from direct_pinecone_service import get_vectorstore_service
 from hyperclova_client import get_hyperclova_client
@@ -29,39 +31,156 @@ app = FastAPI(
     redoc_url=(f"{settings.API_PREFIX}{settings.REDOC_URL}" if settings.ENABLE_DOCS else None),
 )
 
-# 보안 미들웨어 설정
-if settings.ENVIRONMENT == "production":
-    # 기본 허용 호스트(프로덕션 도메인)
-    allowed_hosts = ["*.bu-chatbot.co.kr"]
+# CORS middleware 설정 (가장 먼저 추가 - 역순 실행이므로 마지막에 추가)
+# 개발 환경 또는 로컬 호스트에서는 모든 오리진 허용
+logger.info(f"CORS 설정 - ENVIRONMENT: {settings.ENVIRONMENT}, ALLOWED_ORIGINS: {settings.ALLOWED_ORIGINS}")
 
-    # 내부 테스트/헬스체크 용도로 로컬호스트를 허용하려면
-    # 환경변수 ALLOW_LOCALHOST_IN_PROD=true 로 켜십시오.
-    import os
+# 로컬 개발 환경 감지: localhost 오리진이 있거나 개발 환경인 경우
+is_local_dev = (
+    settings.ENVIRONMENT == "development" or
+    settings.ALLOWED_ORIGINS == ["*"] or
+    any("localhost" in origin or "127.0.0.1" in origin for origin in settings.ALLOWED_ORIGINS) or
+    os.getenv("ALLOW_LOCALHOST", "false").lower() == "true" or
+    os.getenv("ALLOW_LOCALHOST_IN_PROD", "false").lower() == "true"
+)
+
+# 예외 핸들러 추가 (에러 로깅 및 CORS 헤더 포함)
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """요청 검증 에러 핸들러"""
+    logger.error(f"요청 검증 실패: {exc.errors()}, 요청 본문: {await request.body()}")
+    origin = request.headers.get("Origin", "*")
+    allowed_origin = "*" if (is_local_dev or origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")) else origin
+    
+    return JSONResponse(
+        status_code=400,
+        content={"detail": exc.errors()},
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    )
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """HTTP 예외 핸들러"""
+    origin = request.headers.get("Origin", "*")
+    allowed_origin = "*" if (is_local_dev or origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1")) else origin
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    )
+
+# 로컬 개발 환경이거나 프로덕션에서 localhost 허용이 켜져 있으면 모든 오리진 허용
+if is_local_dev or os.getenv("ALLOW_LOCALHOST_IN_PROD", "false").lower() == "true":
+    logger.info("로컬 개발 환경 CORS 설정 적용: 모든 오리진 허용")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+        allow_headers=[
+            "Accept",
+            "Accept-Language",
+            "Content-Language",
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "Origin",
+            "Access-Control-Request-Method",
+            "Access-Control-Request-Headers",
+        ],
+        expose_headers=["*"],
+    )
+else:
+    # 프로덕션 환경: localhost도 추가 (로컬 테스트용)
+    production_origins = settings.ALLOWED_ORIGINS.copy()
+    if "http://localhost:3000" not in production_origins:
+        production_origins.append("http://localhost:3000")
+    if "http://127.0.0.1:3000" not in production_origins:
+        production_origins.append("http://127.0.0.1:3000")
+    
+    logger.info(f"프로덕션 CORS 설정 적용: {production_origins}")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=production_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+        allow_headers=[
+            "Accept",
+            "Accept-Language",
+            "Content-Language",
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "Origin",
+            "Access-Control-Request-Method",
+            "Access-Control-Request-Headers",
+        ],
+        expose_headers=["*"],
+    )
+
+# 보안 미들웨어 설정 (CORS 이후에 추가 - 역순 실행이므로 먼저 실행됨)
+# 로컬 개발 환경에서는 TrustedHostMiddleware 비활성화
+logger.info(f"is_local_dev: {is_local_dev}, ENVIRONMENT: {settings.ENVIRONMENT}")
+
+# 프로덕션 환경에서도 localhost는 항상 허용 (로컬 테스트용)
+if settings.ENVIRONMENT == "production" and not is_local_dev:
+    # 기본 허용 호스트(프로덕션 도메인 + localhost)
+    allowed_hosts = ["*.bu-chatbot.co.kr", "localhost", "127.0.0.1", "0.0.0.0"]
+    
+    # 환경변수로 추가 허용
     if os.getenv("ALLOW_LOCALHOST_IN_PROD", "false").lower() in ("1", "true", "yes"):
-        allowed_hosts += ["localhost", "127.0.0.1"]
+        logger.info(f"프로덕션 환경에서 localhost 허용: {allowed_hosts}")
 
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=allowed_hosts
     )
-
-# CORS middleware 설정
-if settings.ALLOWED_ORIGINS == ["*"]:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-    )
+    logger.info(f"TrustedHostMiddleware 활성화: {allowed_hosts}")
 else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
-    )
+    logger.info("로컬 개발 환경: TrustedHostMiddleware 비활성화")
+
+# OPTIONS 요청을 명시적으로 처리하는 미들웨어 (CORS 미들웨어보다 먼저 실행되도록)
+class CORSOptionsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method == "OPTIONS":
+            origin = request.headers.get("Origin", "*")
+            
+            # 로컬 개발 환경이면 모든 오리진 허용
+            if is_local_dev or origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1"):
+                allowed_origin = "*"
+            else:
+                # 프로덕션 환경: 요청한 오리진이 허용 목록에 있으면 허용
+                production_origins = settings.ALLOWED_ORIGINS + ["http://localhost:3000", "http://127.0.0.1:3000"]
+                if origin in production_origins:
+                    allowed_origin = origin
+                else:
+                    allowed_origin = "*"
+            
+            return Response(
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": allowed_origin,
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD",
+                    "Access-Control-Allow-Headers": "Accept, Accept-Language, Content-Language, Content-Type, Authorization, X-Requested-With, Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+                    "Access-Control-Max-Age": "3600",
+                }
+            )
+        
+        response = await call_next(request)
+        return response
+
+# OPTIONS 미들웨어 추가 (가장 먼저 실행되도록 마지막에 추가 - 역순 실행)
+app.add_middleware(CORSOptionsMiddleware)
 
 router = APIRouter(prefix=settings.API_PREFIX)
 
@@ -71,9 +190,20 @@ app.include_router(auth.router, prefix=settings.API_PREFIX)
 # MongoDB 연결 이벤트
 @app.on_event("startup")
 async def startup_db_client():
-    """앱 시작 시 MongoDB 연결"""
+    """앱 시작 시 MongoDB 연결 및 모델 사전 로딩"""
+    # MongoDB 연결
     await db_instance.connect_db()
     logger.info("MongoDB Atlas 연결 완료")
+    
+    # 모델 사전 로딩 (첫 요청 대기 시간 단축)
+    try:
+        logger.info("모델 사전 로딩 시작...")
+        hyperclova = get_hyperclova_client()
+        await hyperclova._load_model()
+        logger.info("모델 사전 로딩 완료")
+    except Exception as e:
+        logger.error(f"모델 사전 로딩 실패 (첫 요청 시 로딩됨): {e}")
+        # 모델 로딩 실패해도 서버는 계속 실행 (첫 요청 시 재시도)
 
 
 @router.get("/")
@@ -84,6 +214,13 @@ async def root():
         "version": settings.APP_VERSION,
         "environment": settings.ENVIRONMENT
     }
+
+@router.get("/conversations")
+async def get_conversations():
+    """대화 목록 조회 (임시 구현)"""
+    # TODO: 실제 데이터베이스에서 대화 목록 조회
+    # 프론트엔드에서 배열을 기대하므로 배열을 반환
+    return []
 
 @router.get("/health")
 async def health_check():
@@ -123,23 +260,38 @@ async def health_check():
     
     hyperclova_status = "unknown"
     try:
-        if settings.HYPERCLOVA_API_KEY:
+        # Hugging Face 모델이 로드되었는지 확인
+        hyperclova = get_hyperclova_client()
+        if hyperclova._model_loaded:
             hyperclova_status = "healthy"
             health_status["checks"]["hyperclova"] = {
                 "status": "healthy",
-                "api_key_configured": True
+                "model_name": settings.HF_MODEL_NAME,
+                "device": settings.HF_DEVICE
             }
         else:
-            hyperclova_status = "unhealthy"
-            health_status["checks"]["hyperclova"] = {
-                "status": "unhealthy",
-                "error": "HyperCLOVA API key not configured"
-            }
+            # 모델이 아직 로드되지 않았으면 로드 시도
+            try:
+                await hyperclova._load_model()
+                hyperclova_status = "healthy"
+                health_status["checks"]["hyperclova"] = {
+                    "status": "healthy",
+                    "model_name": settings.HF_MODEL_NAME,
+                    "device": settings.HF_DEVICE
+                }
+            except Exception as load_error:
+                hyperclova_status = "unhealthy"
+                health_status["checks"]["hyperclova"] = {
+                    "status": "unhealthy",
+                    "error": f"Model loading failed: {str(load_error)}",
+                    "model_name": settings.HF_MODEL_NAME
+                }
     except Exception as e:
         hyperclova_status = "unhealthy"
         health_status["checks"]["hyperclova"] = {
             "status": "unhealthy",
-            "error": str(e)
+            "error": str(e),
+            "model_name": settings.HF_MODEL_NAME
         }
         logger.warning(f"HyperCLOVA health check failed: {e}")
     

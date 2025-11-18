@@ -82,10 +82,18 @@ class Settings:
     SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     
-    # 외부 API 설정 - HyperCLOVA X
+    # 외부 API 설정 - HyperCLOVA X (레거시, 사용 안 함)
     HYPERCLOVA_API_KEY: str = os.getenv("HYPERCLOVA_API_KEY", "")
     HYPERCLOVA_API_GATEWAY_KEY: Optional[str] = os.getenv("HYPERCLOVA_API_GATEWAY_KEY")
     HYPERCLOVA_REQUEST_ID: Optional[str] = os.getenv("HYPERCLOVA_REQUEST_ID")
+    
+    # Hugging Face 모델 설정 (HyperCLOVAX SEED)
+    HF_MODEL_NAME: str = os.getenv("SEED_MODEL_PATH", os.getenv("HF_MODEL_NAME", "naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-1.5B"))
+    HF_DEVICE: str = os.getenv("SEED_DEVICE", os.getenv("HF_DEVICE", "cuda" if os.getenv("CUDA_AVAILABLE", "false").lower() == "true" else "cpu"))
+    HF_USE_FP16: bool = os.getenv("HF_USE_FP16", "false").lower() == "true"
+    HF_TOKEN: str = os.getenv("HF_TOKEN", "")  # Hugging Face 토큰 (private 모델 접근용)
+    HF_LOAD_IN_8BIT: bool = os.getenv("SEED_LOAD_IN_8BIT", os.getenv("HF_LOAD_IN_8BIT", "false")).lower() == "true"
+    HF_LOAD_IN_4BIT: bool = os.getenv("SEED_LOAD_IN_4BIT", os.getenv("HF_LOAD_IN_4BIT", "false")).lower() == "true"
     
     # PINECONE 벡터 스토어 설정
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")

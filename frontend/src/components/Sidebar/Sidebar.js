@@ -7,15 +7,23 @@ export default function Sidebar({ open, sessions = [], currentSessionIdx, onSele
   const [newRoomTitle, setNewRoomTitle] = useState('');
 
   useEffect(() => {
+    let isMounted = true;
+    
     async function fetchRooms() {
       try {
         const data = await getConversations();
-        setRooms(data);
+        if (isMounted) {
+          setRooms(data);
+        }
       } catch (error) {
         console.error('Failed to load chat rooms:', error);
       }
     }
     fetchRooms();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   async function handleCreateRoom() {
