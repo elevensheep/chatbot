@@ -24,6 +24,8 @@ env:
   SSM_MONGODB_DATABASE: /prod/MONGODB_DATABASE
   SSM_JWT_SECRET_KEY: /prod/JWT_SECRET_KEY
   SSM_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: /prod/JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+  SSM_SMTP_USER: /prod/SMTP_USER
+  SSM_SMTP_PASSWORD: /prod/SMTP_PASSWORD
 
 permissions:
   id-token: write
@@ -204,6 +206,8 @@ jobs:
             "MONGODB_DATABASE"
             "JWT_SECRET_KEY"
             "JWT_ACCESS_TOKEN_EXPIRE_MINUTES"
+            "SMTP_USER"
+            "SMTP_PASSWORD"
           )
 
           # AWS 리전 확인
@@ -318,6 +322,8 @@ jobs:
             --arg MONGODB_DATABASE "$MONGODB_DATABASE" \
             --arg JWT_SECRET_KEY "$JWT_SECRET_KEY" \
             --arg JWT_ACCESS_TOKEN_EXPIRE_MINUTES "$JWT_ACCESS_TOKEN_EXPIRE_MINUTES" \
+            --arg SMTP_USER "$SMTP_USER" \
+            --arg SMTP_PASSWORD "$SMTP_PASSWORD" \
             '
             def set_env(container_name; key; value):
               (.containerDefinitions[] | select(.name == container_name)).environment =
@@ -337,6 +343,8 @@ jobs:
             set_env($CONTAINER_BACKEND; "MONGODB_DATABASE"; $MONGODB_DATABASE) |
             set_env($CONTAINER_BACKEND; "JWT_SECRET_KEY"; $JWT_SECRET_KEY) |
             set_env($CONTAINER_BACKEND; "JWT_ACCESS_TOKEN_EXPIRE_MINUTES"; $JWT_ACCESS_TOKEN_EXPIRE_MINUTES) |
+            set_env($CONTAINER_BACKEND; "SMTP_USER"; $SMTP_USER) |
+            set_env($CONTAINER_BACKEND; "SMTP_PASSWORD"; $SMTP_PASSWORD) |
             {
               family: .family,
               taskRoleArn: (if .taskRoleArn == null then empty else .taskRoleArn end),

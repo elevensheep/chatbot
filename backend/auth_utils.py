@@ -5,10 +5,15 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 import bcrypt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+# HTTP Bearer 보안 스키마
+security = HTTPBearer()
 
 
 def hash_password(password: str) -> str:
@@ -111,3 +116,37 @@ def decode_access_token(token: str) -> Optional[dict]:
     except JWTError as e:
         logger.error(f"JWT 디코딩 오류: {e}")
         return None
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> str:
+    """
+    JWT 토큰에서 현재 사용자 ID 추출
+
+    Args:
+        credentials: HTTP Bearer 토큰 정보
+
+    Returns:
+        사용자 ID (MongoDB ObjectId 문자열)
+
+    Raises:
+        HTTPException: 토큰이 유효하지 않거나 만료된 경우
+    """
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="유효하지 않거나 만료된 토큰입니다"
+        )
+
+    user_id: str = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="토큰에 사용자 정보가 없습니다"
+        )
+
+    return user_id

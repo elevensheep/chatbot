@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { authAPI } from '../../utils/api';
 import './Login.css';
 
-export default function Login({ onLogin, onSignup, onBack }) {
+export default function Login({ onLogin, onSignup, onBack, onFindPassword }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,15 +19,38 @@ export default function Login({ onLogin, onSignup, onBack }) {
     setError('');
 
     try {
-      const response = await authAPI.login(email, password);
-      
+      console.log('로그인 요청 시작:', email);
+      console.log('authAPI.login 함수 호출 직전');
+      const loginPromise = authAPI.login(email, password);
+      console.log('Promise 생성됨:', loginPromise);
+      const response = await loginPromise;
+      console.log('로그인 응답:', response);
+
       // 로그인 성공시 토큰을 localStorage에 저장
-      if (response.token) {
-        localStorage.setItem('authToken', response.token);
+      // 백엔드는 { success: true, data: { access_token, user } } 형식으로 반환
+      const accessToken = response.data?.access_token || response.access_token;
+      const userData = response.data?.user || response.user;
+
+      console.log('추출된 토큰:', accessToken);
+      console.log('추출된 사용자 정보:', userData);
+
+      if (accessToken) {
+        localStorage.setItem('authToken', accessToken);
+        localStorage.setItem('access_token', accessToken); // API 호출용
         localStorage.setItem('userEmail', email);
+
+        // 사용자 정보도 저장
+        if (userData) {
+          localStorage.setItem('user', JSON.stringify(userData));
+        }
+        console.log('localStorage 저장 완료');
+      } else {
+        console.error('토큰이 없습니다!');
       }
-      
+
+      console.log('onLogin 호출 전');
       onLogin(email);
+      console.log('onLogin 호출 완료');
     } catch (error) {
       console.error('Login failed:', error);
       setError(error.message || '로그인에 실패했습니다. 이메일과 비밀번호를 확인하세요.');
@@ -72,6 +95,14 @@ export default function Login({ onLogin, onSignup, onBack }) {
           style={{ marginTop: 8, background: '#eee', color: '#1976d2' }}
         >
           회원가입
+        </button>
+        <button
+          type="button"
+          className="login-signup-btn"
+          onClick={onFindPassword}
+          style={{ marginTop: 8, background: '#eee', color: '#1976d2' }}
+        >
+          비밀번호 찾기
         </button>
       </form>
     </div>

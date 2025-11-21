@@ -265,7 +265,8 @@ class HyperCLOVAClient:
         self,
         query: str,
         context_docs: List[Dict[str, Any]],
-        system_prompt: str = None
+        system_prompt: str = None,
+        message_history: List[Dict[str, str]] = None
     ) -> str:
         """
         컨텍스트 기반 답변 생성 (비동기)
@@ -274,6 +275,7 @@ class HyperCLOVAClient:
             query: 사용자 질문
             context_docs: 검색된 컨텍스트 문서 리스트
             system_prompt: 시스템 프롬프트 (선택)
+            message_history: 최근 대화 히스토리 (선택, 최대 3개)
         
         Returns:
             생성된 답변 텍스트
@@ -291,6 +293,7 @@ class HyperCLOVAClient:
                             5. 구체적인 수업을 물어보면 해당 수업의 상세 정보를 제공하기
                             6. 친근하고 도움이 되는 톤으로 답변
                             7. 정보가 부족하면 솔직하게 말하기
+                            8. 이전 대화 내용을 참고하여 맥락에 맞는 답변 제공
 
                             답변 형태 예시:
                             - 교수님 이름만 물어본 경우: "○○ 교수님의 수업은 다음과 같습니다: 1. 강의A 2. 강의B ..."
@@ -303,17 +306,28 @@ class HyperCLOVAClient:
             for i, doc in enumerate(context_docs)
         ])
         
-        # 메시지 구성
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"""다음은 수업계획서에서 검색된 관련 정보입니다:
+        # 메시지 구성 (시스템 프롬프트 + 이전 대화 히스토리 + 현재 질문)
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 이전 대화 히스토리 추가 (있는 경우)
+        if message_history and len(message_history) > 0:
+            for hist_msg in message_history:
+                messages.append({
+                    "role": hist_msg["role"],
+                    "content": hist_msg["content"]
+                })
+            logger.info(f"대화 히스토리 {len(message_history)}개를 컨텍스트에 포함")
+        
+        # 현재 질문과 컨텍스트 추가
+        user_content = f"""다음은 수업계획서에서 검색된 관련 정보입니다:
 
 {context_text}
 
 질문: {query}
 
-위 정보를 바탕으로 질문에 답변해주세요."""}
-        ]
+위 정보를 바탕으로 질문에 답변해주세요."""
+        
+        messages.append({"role": "user", "content": user_content})
         
         # API 호출
         response = await self.chat(
@@ -357,12 +371,13 @@ class HyperCLOVAClient:
             logger.error(f"전체 응답: {json.dumps(response, ensure_ascii=False, indent=2)}")
             raise
     
-    async def generate_casual_answer(self, query: str) -> str:
+    async def generate_casual_answer(self, query: str, message_history: List[Dict[str, str]] = None) -> str:
         """
         일상 대화 답변 생성 (컨텍스트 없이, 비동기)
         
         Args:
             query: 사용자 질문
+            message_history: 최근 대화 히스토리 (선택, 최대 3개)
             
         Returns:
             생성된 답변 텍스트
@@ -373,12 +388,22 @@ class HyperCLOVAClient:
                         답변 원칙:
                         1. 친근하고 자연스러운 한국어로 답변
                         2. 간단명료하게 답변
-                        3. 수업 관련 질문이 있다면 구체적으로 물어보도록 유도"""
+                        3. 수업 관련 질문이 있다면 구체적으로 물어보도록 유도
+                        4. 이전 대화 내용을 참고하여 맥락에 맞는 답변 제공"""
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": query}
-        ]
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 이전 대화 히스토리 추가 (있는 경우)
+        if message_history and len(message_history) > 0:
+            for hist_msg in message_history:
+                messages.append({
+                    "role": hist_msg["role"],
+                    "content": hist_msg["content"]
+                })
+            logger.info(f"일상 대화 - 히스토리 {len(message_history)}개를 컨텍스트에 포함")
+        
+        # 현재 질문 추가
+        messages.append({"role": "user", "content": query})
         
         try:
             response = await self.chat(

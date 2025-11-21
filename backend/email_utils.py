@@ -19,6 +19,11 @@ def generate_verification_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def generate_password_reset_code() -> str:
+    """비밀번호 재설정용 6자리 숫자 코드 생성"""
+    return ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+
+
 async def save_verification_token(email: str, token: str, expires_minutes: int = 30):
     """
     이메일 인증 토큰을 데이터베이스에 저장
@@ -111,7 +116,7 @@ async def verify_token(token: str) -> Optional[str]:
         return None
 
 
-async def send_verification_email(email: str, token: str, frontend_url: str = "http://localhost:3000"):
+async def send_verification_email(email: str, token: str, frontend_url: str = "http://localhost:3000", is_password_reset: bool = False):
     """
     이메일 인증 메일 발송
 
@@ -141,12 +146,30 @@ async def send_verification_email(email: str, token: str, frontend_url: str = "h
 
         # 이메일 메시지 생성
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = '[백석대학교 수업계획서 챗봇] 이메일 인증'
+
+        if is_password_reset:
+            msg['Subject'] = '[백석대학교 수업계획서 챗봇] 비밀번호 재설정'
+            title = "비밀번호 재설정"
+            description = "비밀번호를 재설정하기 위해 아래 6자리 인증 코드를 입력해주세요."
+            button_text = "비밀번호 재설정하기"
+            verification_link = f"{frontend_url}/reset-password?token={token}&email={email}"
+            code_section = f"""
+              <div style="background-color: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; text-align: center;">
+                <p style="margin: 0; color: #666; font-size: 14px;">인증 코드 (6자리)</p>
+                <h1 style="margin: 10px 0; color: #0066cc; letter-spacing: 10px; font-size: 36px;">{token}</h1>
+                <p style="margin: 5px 0; color: #999; font-size: 12px;">이 코드는 30분 동안 유효합니다</p>
+              </div>
+            """
+        else:
+            msg['Subject'] = '[백석대학교 수업계획서 챗봇] 이메일 인증'
+            title = "이메일 인증"
+            description = "회원가입을 완료하기 위해 아래 버튼을 클릭하여 이메일을 인증해주세요."
+            button_text = "이메일 인증하기"
+            verification_link = f"{frontend_url}/verify-email?token={token}"
+            code_section = ""
+
         msg['From'] = smtp_user
         msg['To'] = email
-
-        # 인증 링크
-        verification_link = f"{frontend_url}/verify-email?token={token}"
 
         # HTML 본문
         html_body = f"""
@@ -154,13 +177,14 @@ async def send_verification_email(email: str, token: str, frontend_url: str = "h
           <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
               <h2 style="color: #0066cc;">백석대학교 수업계획서 챗봇</h2>
-              <h3>이메일 인증</h3>
+              <h3>{title}</h3>
               <p>안녕하세요,</p>
-              <p>회원가입을 완료하기 위해 아래 버튼을 클릭하여 이메일을 인증해주세요.</p>
+              <p>{description}</p>
+              {code_section}
               <div style="text-align: center; margin: 30px 0;">
                 <a href="{verification_link}"
                    style="display: inline-block; padding: 12px 30px; background-color: #0066cc; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                  이메일 인증하기
+                  {button_text}
                 </a>
               </div>
               <p style="color: #666; font-size: 14px;">
@@ -179,17 +203,19 @@ async def send_verification_email(email: str, token: str, frontend_url: str = "h
         </html>
         """
 
-        # 텍스트 본문 (HTML을 지원하지 않는 이메일 클라이언트용)
+        # 텍스트 본문
         text_body = f"""
-        백석대학교 수업계획서 챗봇 - 이메일 인증
+        백석대학교 수업계획서 챗봇 - {title}
 
         안녕하세요,
 
-        회원가입을 완료하기 위해 아래 링크를 클릭하여 이메일을 인증해주세요.
+        {description}
+
+        {"인증 코드 (6자리): " + token if is_password_reset else ""}
 
         인증 링크: {verification_link}
 
-        이 링크는 30분 동안 유효합니다.
+        이 코드/링크는 30분 동안 유효합니다.
 
         본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다.
         """

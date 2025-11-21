@@ -120,6 +120,56 @@ class EmailVerificationConfirm(BaseModel):
     )
 
 
+class PasswordResetRequest(BaseModel):
+    """비밀번호 재설정 요청 모델"""
+    email: EmailStr = Field(..., description="등록된 이메일")
+
+    @field_validator('email')
+    @classmethod
+    def validate_email_domain(cls, v):
+        """이메일 도메인 검증 (@bu.ac.kr만 허용)"""
+        if not v.endswith('@bu.ac.kr'):
+            raise ValueError('백석대학교 이메일(@bu.ac.kr)만 사용 가능합니다')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "student@bu.ac.kr"
+            }
+        }
+    )
+
+
+class PasswordResetConfirm(BaseModel):
+    """비밀번호 재설정 확인 모델"""
+    email: EmailStr = Field(..., description="이메일")
+    token: str = Field(..., description="인증 코드")
+    new_password: str = Field(..., min_length=8, description="새 비밀번호")
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, v):
+        """비밀번호 유효성 검증 (영문+숫자+특수문자)"""
+        if not re.search(r'[a-zA-Z]', v):
+            raise ValueError('비밀번호는 영문을 포함해야 합니다')
+        if not re.search(r'\d', v):
+            raise ValueError('비밀번호는 숫자를 포함해야 합니다')
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
+            raise ValueError('비밀번호는 특수문자를 포함해야 합니다')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "student@bu.ac.kr",
+                "token": "abc123",
+                "new_password": "NewPassword123!"
+            }
+        }
+    )
+
+
 class UserInDB(BaseModel):
     """데이터베이스에 저장되는 사용자 모델"""
     student_id: str

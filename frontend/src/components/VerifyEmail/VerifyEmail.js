@@ -22,8 +22,8 @@ export default function VerifyEmail() {
 
       try {
         const res = await authAPI.verifyWithToken(token);
-        // backend should return { email: 'user@bu.ac.kr' } on success
-        const verifiedEmail = res?.email;
+        // backend returns { success: True, data: { email: 'user@bu.ac.kr', verified: True } }
+        const verifiedEmail = res?.data?.email || res?.email;
         if (verifiedEmail) {
           // Redirect back to signup with verifiedEmail param
           const encoded = encodeURIComponent(verifiedEmail);
