@@ -7,8 +7,8 @@ WORKDIR /app
 # package.json과 package-lock.json 복사
 COPY package*.json ./
 
-# 의존성 설치 최적화
-RUN npm ci --only=production --no-audit --no-fund && \
+# 의존성 설치 최적화 (빌드 시 모든 의존성 필요)
+RUN npm ci --no-audit --no-fund && \
     npm cache clean --force && \
     rm -rf /tmp/* /var/cache/apk/*
 
