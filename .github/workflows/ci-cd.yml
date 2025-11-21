@@ -26,6 +26,19 @@ env:
   SSM_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: /prod/JWT_ACCESS_TOKEN_EXPIRE_MINUTES
   SSM_SMTP_USER: /prod/SMTP_USER
   SSM_SMTP_PASSWORD: /prod/SMTP_PASSWORD
+  
+  # SSM 파라미터 키를 배열로 정의 (Deploy 단계에서 사용)
+  SSM_KEYS: |
+    REACT_APP_API_URL
+    HYPERCLOVA_API_KEY
+    PINECONE_API_KEY
+    PINECONE_INDEX_NAME
+    MONGODB_URI
+    MONGODB_DATABASE
+    JWT_SECRET_KEY
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+    SMTP_USER
+    SMTP_PASSWORD
 
 permissions:
   id-token: write
@@ -167,6 +180,56 @@ jobs:
           role-to-assume: ${{ secrets.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Fetch all SSM Parameters
+        id: fetch-ssm
+        run: |
+          # SSM Parameter Store에서 가져올 파라미터 이름 목록을 준비
+          PARAM_NAMES=$(echo "${{ env.SSM_KEYS }}" | tr -d '[:space:]' | tr '\n' ',' | sed 's/,$//')
+          
+          # 파라미터 전체 경로 배열 생성
+          PARAM_PATHS=()
+          for KEY in ${{ env.SSM_KEYS }}; do
+            ENV_VAR_NAME="SSM_${KEY}"
+            PATH_VAR=$(printenv "${ENV_VAR_NAME}")
+            if [ -z "$PATH_VAR" ]; then
+              PATH_VAR="$KEY"
+            fi
+            PARAM_PATHS+=("$PATH_VAR")
+          done
+          
+          # AWS SSM API 호출 횟수를 줄이기 위해 모든 파라미터를 한 번에 가져옴
+          echo "Fetching SSM parameters: ${PARAM_PATHS[*]}"
+          
+          SSM_OUTPUT=$(aws ssm get-parameters \
+            --names "${PARAM_PATHS[@]}" \
+            --with-decryption \
+            --region ${{ env.AWS_REGION }} \
+            --query "Parameters[*].[Name, Value]" \
+            --output json)
+
+          if [ $? -ne 0 ]; then
+            echo "❌ Error: Failed to fetch parameters from SSM Parameter Store."
+            echo "IAM Role (ARN: ${{ secrets.ROLE_ARN }})에 'ssm:GetParameters' 및 KMS Decrypt 권한이 있는지 확인하세요."
+            exit 1
+          fi
+
+          # 파라미터 값들을 환경 변수로 내보내기 위해 GITHUB_OUTPUT에 설정
+          SSM_ARRAY=$(echo "$SSM_OUTPUT" | jq -r '.[] | "\(.Name)=\(.Value)"')
+          
+          # 키/값 쌍을 GITHUB_OUTPUT 형식에 맞게 변환
+          for pair in $SSM_ARRAY; do
+            NAME_WITH_PATH=$(echo "$pair" | cut -d'=' -f1)
+            VALUE=$(echo "$pair" | cut -d'=' -f2-)
+            
+            # 파라미터 이름에서 경로('/prod/')를 제거하고 환경 변수 이름만 추출
+            ENV_KEY=$(echo "$NAME_WITH_PATH" | sed 's|^/prod/||')
+            
+            # 후속 단계에서 사용할 수 있도록 ${{ steps.fetch-ssm.outputs.ENV_KEY }}에 값 설정
+            echo "${ENV_KEY}=${VALUE}" >> $GITHUB_OUTPUT
+            echo "✅ Successfully fetched ${ENV_KEY}"
+          done
+
+
       - name: Update ECS Task Definition (Both Containers)
         id: update-task
         env:
@@ -174,125 +237,24 @@ jobs:
           IMAGE_BACKEND: ${{ needs.build-and-push.outputs.backend_image_uri }}
           CONTAINER_FRONTEND: ${{ env.CONTAINER_FRONTEND_NAME }}
           CONTAINER_BACKEND: ${{ env.CONTAINER_BACKEND_NAME }}
+          # SSM에서 가져온 파라미터들을 환경 변수로 로드
+          REACT_APP_API_URL: ${{ steps.fetch-ssm.outputs.REACT_APP_API_URL }}
+          HYPERCLOVA_API_KEY: ${{ steps.fetch-ssm.outputs.HYPERCLOVA_API_KEY }}
+          PINECONE_API_KEY: ${{ steps.fetch-ssm.outputs.PINECONE_API_KEY }}
+          PINECONE_INDEX_NAME: ${{ steps.fetch-ssm.outputs.PINECONE_INDEX_NAME }}
+          MONGODB_URI: ${{ steps.fetch-ssm.outputs.MONGODB_URI }}
+          MONGODB_DATABASE: ${{ steps.fetch-ssm.outputs.MONGODB_DATABASE }}
+          JWT_SECRET_KEY: ${{ steps.fetch-ssm.outputs.JWT_SECRET_KEY }}
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${{ steps.fetch-ssm.outputs.JWT_ACCESS_TOKEN_EXPIRE_MINUTES }}
+          SMTP_USER: ${{ steps.fetch-ssm.outputs.SMTP_USER }}
+          SMTP_PASSWORD: ${{ steps.fetch-ssm.outputs.SMTP_PASSWORD }}
         run: |
-          echo "=== Environment Variables Check ==="
-          echo "Frontend image URI: ${IMAGE_FRONTEND:-NOT_SET}"
-          echo "Backend image URI: ${IMAGE_BACKEND:-NOT_SET}"
-          echo "Frontend container: ${CONTAINER_FRONTEND:-NOT_SET}"
-          echo "Backend container: ${CONTAINER_BACKEND:-NOT_SET}"
-          echo "Task definition: ${{ env.ECS_TASK_DEFINITION }}"
-          echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo ""
-          
           # 필수 변수 확인
           if [ -z "$IMAGE_FRONTEND" ] || [ -z "$IMAGE_BACKEND" ]; then
             echo "Error: Image URIs are not set"
-            echo "IMAGE_FRONTEND: $IMAGE_FRONTEND"
-            echo "IMAGE_BACKEND: $IMAGE_BACKEND"
             exit 1
           fi
           
-          if [ -z "$CONTAINER_FRONTEND" ] || [ -z "$CONTAINER_BACKEND" ]; then
-            echo "Error: Container names are not set"
-            exit 1
-          fi
-
-          PARAM_KEYS=(
-            "REACT_APP_API_URL"
-            "HYPERCLOVA_API_KEY"
-            "PINECONE_API_KEY"
-            "PINECONE_INDEX_NAME"
-            "MONGODB_URI"
-            "MONGODB_DATABASE"
-            "JWT_SECRET_KEY"
-            "JWT_ACCESS_TOKEN_EXPIRE_MINUTES"
-            "SMTP_USER"
-            "SMTP_PASSWORD"
-          )
-
-          # AWS 리전 확인
-          echo "AWS Region: ${{ env.AWS_REGION }}"
-          echo "Current AWS identity:"
-          aws sts get-caller-identity || echo "Warning: Failed to get AWS identity"
-          echo ""
-
-          for PARAM_KEY in "${PARAM_KEYS[@]}"; do
-            ENV_VAR_NAME="SSM_${PARAM_KEY}"
-            PARAMETER_NAME=$(printenv "${ENV_VAR_NAME}")
-            if [ -z "$PARAMETER_NAME" ]; then
-              PARAMETER_NAME="$PARAM_KEY"
-            fi
-
-            echo "=========================================="
-            echo "Fetching ${PARAM_KEY} from SSM Parameter Store"
-            echo "Parameter name: ${PARAMETER_NAME}"
-            echo "AWS Region: ${{ env.AWS_REGION }}"
-            echo ""
-            
-            # 먼저 파라미터 존재 여부 확인
-            echo "Checking if parameter exists..."
-            PARAM_EXISTS=$(aws ssm describe-parameters \
-              --parameter-filters "Key=Name,Values=${PARAMETER_NAME}" \
-              --region ${{ env.AWS_REGION }} \
-              --query "length(Parameters)" \
-              --output text 2>&1)
-            
-            if [ "$PARAM_EXISTS" = "0" ] || [ -z "$PARAM_EXISTS" ]; then
-              echo "❌ Error: Parameter '${PARAMETER_NAME}' does not exist in SSM Parameter Store"
-              echo ""
-              echo "Available parameters with similar names:"
-              aws ssm describe-parameters \
-                --region ${{ env.AWS_REGION }} \
-                --query "Parameters[?contains(Name, '${PARAM_KEY}')].Name" \
-                --output table 2>&1 || echo "Could not list parameters"
-              exit 1
-            fi
-            
-            echo "✅ Parameter exists, fetching value..."
-            
-            # 오류 메시지를 변수에 저장
-            ERROR_OUTPUT=$(aws ssm get-parameter \
-              --name "${PARAMETER_NAME}" \
-              --with-decryption \
-              --query "Parameter.Value" \
-              --output text \
-              --region ${{ env.AWS_REGION }} 2>&1)
-            
-            EXIT_CODE=$?
-            
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "❌ Error: Failed to fetch ${PARAM_KEY} from SSM Parameter Store"
-              echo "Exit code: $EXIT_CODE"
-              echo "Parameter name: ${PARAMETER_NAME}"
-              echo "AWS Region: ${{ env.AWS_REGION }}"
-              echo ""
-              echo "Full error output:"
-              echo "$ERROR_OUTPUT"
-              echo ""
-              echo "Checking IAM permissions..."
-              aws iam get-role-policy \
-                --role-name github_ec2_ecs_role \
-                --policy-name SSMParameterAccess 2>&1 || echo "Could not check IAM policy"
-              exit 1
-            fi
-
-            PARAM_VALUE="$ERROR_OUTPUT"
-            
-            if [ -z "$PARAM_VALUE" ] || [ "$PARAM_VALUE" = "None" ]; then
-              echo "❌ Error: ${PARAM_KEY} returned empty value from SSM Parameter Store"
-              echo "Parameter name: ${PARAMETER_NAME}"
-              exit 1
-            fi
-
-            export "${PARAM_KEY}"="${PARAM_VALUE}"
-            echo "✅ Successfully fetched ${PARAM_KEY} (value length: ${#PARAM_VALUE} characters)"
-            echo ""
-          done
-          
-          echo "=========================================="
-          echo "✅ All parameters fetched successfully"
-          echo "=========================================="
-
           # Task Definition 조회
           echo "Fetching task definition..."
           TASK_DEF_JSON=$(aws ecs describe-task-definition \
@@ -306,9 +268,8 @@ jobs:
           fi
 
           echo "Task definition fetched successfully"
-          echo "Updating container images..."
-
-          # jq를 사용하여 이미지 URI 업데이트
+          
+          # jq를 사용하여 이미지 URI와 환경 변수 업데이트
           NEW_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq \
             --arg IMAGE_FRONTEND "$IMAGE_FRONTEND" \
             --arg IMAGE_BACKEND "$IMAGE_BACKEND" \
@@ -354,19 +315,14 @@ jobs:
               volumes: (if .volumes == null then [] else .volumes end),
               placementConstraints: (if .placementConstraints == null then [] else .placementConstraints end),
               requiresCompatibilities: (if .requiresCompatibilities == null then [] else .requiresCompatibilities end)
-            }')
-
-          # JSON 유효성 검사
+            }
+          ' )
+          
+          # JSON 유효성 검사 및 파일 저장
           if ! echo "$NEW_TASK_DEF" | jq empty 2>/dev/null; then
             echo "Error: Invalid JSON generated"
-            echo "Generated JSON:"
-            echo "$NEW_TASK_DEF"
             exit 1
           fi
-
-          echo "Task definition JSON updated successfully"
-          
-          # 파일로 저장하여 디버깅 (필요시)
           echo "$NEW_TASK_DEF" > /tmp/new-task-definition.json
 
           # Task Definition 등록
