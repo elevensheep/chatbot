@@ -14,6 +14,7 @@ from direct_pinecone_service import get_vectorstore_service
 from hyperclova_client import get_hyperclova_client
 from database import db_instance, Collections
 from routers import auth, conversations
+from routers.conversations import ChatRequest, ChatResponse
 from auth_utils import get_current_user
 
 # 로깅 설정

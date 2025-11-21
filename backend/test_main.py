@@ -125,15 +125,18 @@ def test_chat_response_model():
     """ChatResponse 모델이 정상적으로 작동하는지 확인"""
     from main import ChatResponse
     
-    response = ChatResponse(answer="테스트 답변", sources=[])
+    response = ChatResponse(answer="테스트 답변", sources=[], message_id="test_msg_id")
     assert response.answer == "테스트 답변"
     assert response.sources == []
+    assert response.message_id == "test_msg_id"
     
     response2 = ChatResponse(
         answer="답변",
-        sources=[{"course_name": "테스트", "professor": "교수"}]
+        sources=[{"course_name": "테스트", "professor": "교수"}],
+        message_id="test_msg_id_2"
     )
     assert len(response2.sources) == 1
+    assert response2.message_id == "test_msg_id_2"
     
     print("✅ ChatResponse 모델 확인 완료")
 
