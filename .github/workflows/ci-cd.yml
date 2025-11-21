@@ -1,9 +1,7 @@
-name: CI/CD Pipeline to AWS ECS (Full Containerized)
+name: CI/CD Pipeline to AWS ECS
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
 
 env:
@@ -15,341 +13,103 @@ env:
   ECS_TASK_DEFINITION: chatbot-task-definition
   CONTAINER_BACKEND_NAME: backend-container
   CONTAINER_FRONTEND_NAME: frontend-container
-  # SSM Parameter Store paths (non-sensitive)
-  SSM_REACT_APP_API_URL: /prod/REACT_APP_API_URL
-  SSM_HYPERCLOVA_API_KEY: /prod/HYPERCLOVA_API_KEY
-  SSM_PINECONE_API_KEY: /prod/PINECONE_API_KEY
-  SSM_PINECONE_INDEX_NAME: /prod/PINECONE_INDEX_NAME
-  SSM_MONGODB_URI: /prod/MONGODB_URI
-  SSM_MONGODB_DATABASE: /prod/MONGODB_DATABASE
-  SSM_JWT_SECRET_KEY: /prod/JWT_SECRET_KEY
-  SSM_JWT_ACCESS_TOKEN_EXPIRE_MINUTES: /prod/JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-  SSM_SMTP_USER: /prod/SMTP_USER
-  SSM_SMTP_PASSWORD: /prod/SMTP_PASSWORD
-  
-  # SSM 파라미터 키를 배열로 정의 (Deploy 단계에서 사용)
-  SSM_KEYS: |
-    REACT_APP_API_URL
-    HYPERCLOVA_API_KEY
-    PINECONE_API_KEY
-    PINECONE_INDEX_NAME
-    MONGODB_URI
-    MONGODB_DATABASE
-    JWT_SECRET_KEY
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES
-    SMTP_USER
-    SMTP_PASSWORD
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      
-      - name: Install dependencies
-        run: |
-          cd backend
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          
-      - name: Verify pytest installation
-        run: |
-          cd backend
-          pytest --version || (echo "pytest not found, installing..." && pip install pytest>=7.4.0)
-      
-      - name: Run tests
-        run: |
-          cd backend
-          export ENVIRONMENT=test
-          export LOG_LEVEL=INFO
-          export DEBUG=false
-          export API_PREFIX=/api
-          export ROOT_PATH=""
-          export ENABLE_DOCS=true
-          export OPENAPI_URL=/openapi.json
-          export DOCS_URL=/docs
-          export REDOC_URL=/redoc
-          export HOST=0.0.0.0
-          export PORT=5000
-          export BACKEND_WORKERS=1
-          export JWT_SECRET_KEY=test-secret-key
-          export SECRET_KEY=test-secret-key
-          export ALLOWED_ORIGINS=http://localhost:3000
-          export ALLOW_ALL_ORIGINS_IN_DEV=false
-          export ENABLE_METRICS=true
-          export ENABLE_HEALTH_CHECK=true
-          export HYPERCLOVA_API_KEY=""
-          export PINECONE_API_KEY=""
-          export PINECONE_INDEX_NAME="test-index"
-          
-          # pytest 실행 및 결과 확인 (segfault 방지를 위해 결과 파싱)
-          TEST_OUTPUT=$(pytest test_main.py -v --tb=short 2>&1 || true)
-          echo "$TEST_OUTPUT"
-          
-          # 테스트 결과 확인
-          # pytest 출력에서 "X passed" 패턴 찾기
-          if echo "$TEST_OUTPUT" | grep -qE "[0-9]+ passed"; then
-            # "failed"가 있는지 확인
-            if echo "$TEST_OUTPUT" | grep -qE "[0-9]+ failed"; then
-              FAILED_COUNT=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ failed" | grep -oE "[0-9]+" | head -1)
-              echo "❌ 테스트 실패: $FAILED_COUNT개 실패"
-              exit 1
-            else
-              # "X passed" 패턴에서 숫자 추출
-              PASSED_COUNT=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+" | head -1)
-              echo "✅ 모든 테스트 통과: $PASSED_COUNT개"
-              exit 0
-            fi
-          else
-            echo "❌ 테스트 실행 실패 또는 결과를 파싱할 수 없음"
-            exit 1
-          fi
-      
-      - name: Test import validation
-        run: |
-          cd backend
-          python -c "from config import settings; print(f'✅ Config loaded: {settings.APP_NAME}')"
-          python -c "from main import app; print(f'✅ App created: {app.title}')"
 
-  build-and-push:
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest -q || exit 1
+
+  build:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     outputs:
-      backend_image_uri: ${{ steps.push-backend.outputs.backend_uri }}
-      frontend_image_uri: ${{ steps.push-frontend.outputs.frontend_uri }}
+      backend_image: ${{ steps.out_backend.outputs.uri }}
+      frontend_image: ${{ steps.out_frontend.outputs.uri }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
       - uses: aws-actions/amazon-ecr-login@v2
-        id: login-ecr
-      - uses: docker/setup-buildx-action@v3
 
-      # Backend Build & Push
-      - name: Build and push backend image
-        id: build-backend
+      - name: Build backend
+        id: backend
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: backend
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}
-          platforms: linux/amd64
+          tags: ${{ steps.amazon-ecr-login.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}
 
-      - id: push-backend
-        run: |
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}"
-          echo "backend_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+      - id: out_backend
+        run: echo "uri=${{ steps.amazon-ecr-login.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      # Frontend Build & Push
-      - name: Build and push frontend image
-        id: build-frontend
+      - name: Build frontend
+        id: frontend
         uses: docker/build-push-action@v5
         with:
-          context: ./frontend
+          context: frontend
           push: true
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}
-          platforms: linux/amd64
+          tags: ${{ steps.amazon-ecr-login.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}
 
-      - id: push-frontend
-        run: |
-          IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}"
-          echo "frontend_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+      - id: out_frontend
+        run: echo "uri=${{ steps.amazon-ecr-login.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-  deploy-ecs:
-    needs: [build-and-push]
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
     steps:
       - uses: actions/checkout@v4
-
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Fetch all SSM Parameters
-        id: fetch-ssm
+      - name: Update task definition
+        id: update
         run: |
-          # SSM Parameter Store에서 가져올 파라미터 이름 목록을 준비
-          PARAM_NAMES=$(echo "${{ env.SSM_KEYS }}" | tr -d '[:space:]' | tr '\n' ',' | sed 's/,$//')
-          
-          # 파라미터 전체 경로 배열 생성
-          PARAM_PATHS=()
-          for KEY in ${{ env.SSM_KEYS }}; do
-            ENV_VAR_NAME="SSM_${KEY}"
-            PATH_VAR=$(printenv "${ENV_VAR_NAME}")
-            if [ -z "$PATH_VAR" ]; then
-              PATH_VAR="$KEY"
-            fi
-            PARAM_PATHS+=("$PATH_VAR")
-          done
-          
-          # AWS SSM API 호출 횟수를 줄이기 위해 모든 파라미터를 한 번에 가져옴
-          echo "Fetching SSM parameters: ${PARAM_PATHS[*]}"
-          
-          SSM_OUTPUT=$(aws ssm get-parameters \
-            --names "${PARAM_PATHS[@]}" \
-            --with-decryption \
-            --region ${{ env.AWS_REGION }} \
-            --query "Parameters[*].[Name, Value]" \
-            --output json)
-
-          if [ $? -ne 0 ]; then
-            echo "❌ Error: Failed to fetch parameters from SSM Parameter Store."
-            echo "IAM Role (ARN: ${{ secrets.ROLE_ARN }})에 'ssm:GetParameters' 및 KMS Decrypt 권한이 있는지 확인하세요."
-            exit 1
-          fi
-
-          # 파라미터 값들을 환경 변수로 내보내기 위해 GITHUB_OUTPUT에 설정
-          SSM_ARRAY=$(echo "$SSM_OUTPUT" | jq -r '.[] | "\(.Name)=\(.Value)"')
-          
-          # 키/값 쌍을 GITHUB_OUTPUT 형식에 맞게 변환
-          for pair in $SSM_ARRAY; do
-            NAME_WITH_PATH=$(echo "$pair" | cut -d'=' -f1)
-            VALUE=$(echo "$pair" | cut -d'=' -f2-)
-            
-            # 파라미터 이름에서 경로('/prod/')를 제거하고 환경 변수 이름만 추출
-            ENV_KEY=$(echo "$NAME_WITH_PATH" | sed 's|^/prod/||')
-            
-            # 후속 단계에서 사용할 수 있도록 ${{ steps.fetch-ssm.outputs.ENV_KEY }}에 값 설정
-            echo "${ENV_KEY}=${VALUE}" >> $GITHUB_OUTPUT
-            echo "✅ Successfully fetched ${ENV_KEY}"
-          done
-
-
-      - name: Update ECS Task Definition (Both Containers)
-        id: update-task
-        env:
-          IMAGE_FRONTEND: ${{ needs.build-and-push.outputs.frontend_image_uri }}
-          IMAGE_BACKEND: ${{ needs.build-and-push.outputs.backend_image_uri }}
-          CONTAINER_FRONTEND: ${{ env.CONTAINER_FRONTEND_NAME }}
-          CONTAINER_BACKEND: ${{ env.CONTAINER_BACKEND_NAME }}
-          # SSM에서 가져온 파라미터들을 환경 변수로 로드
-          REACT_APP_API_URL: ${{ steps.fetch-ssm.outputs.REACT_APP_API_URL }}
-          HYPERCLOVA_API_KEY: ${{ steps.fetch-ssm.outputs.HYPERCLOVA_API_KEY }}
-          PINECONE_API_KEY: ${{ steps.fetch-ssm.outputs.PINECONE_API_KEY }}
-          PINECONE_INDEX_NAME: ${{ steps.fetch-ssm.outputs.PINECONE_INDEX_NAME }}
-          MONGODB_URI: ${{ steps.fetch-ssm.outputs.MONGODB_URI }}
-          MONGODB_DATABASE: ${{ steps.fetch-ssm.outputs.MONGODB_DATABASE }}
-          JWT_SECRET_KEY: ${{ steps.fetch-ssm.outputs.JWT_SECRET_KEY }}
-          JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${{ steps.fetch-ssm.outputs.JWT_ACCESS_TOKEN_EXPIRE_MINUTES }}
-          SMTP_USER: ${{ steps.fetch-ssm.outputs.SMTP_USER }}
-          SMTP_PASSWORD: ${{ steps.fetch-ssm.outputs.SMTP_PASSWORD }}
-        run: |
-          # 필수 변수 확인
-          if [ -z "$IMAGE_FRONTEND" ] || [ -z "$IMAGE_BACKEND" ]; then
-            echo "Error: Image URIs are not set"
-            exit 1
-          fi
-          
-          # Task Definition 조회
-          echo "Fetching task definition..."
-          TASK_DEF_JSON=$(aws ecs describe-task-definition \
+          TASK=$(aws ecs describe-task-definition \
             --task-definition ${{ env.ECS_TASK_DEFINITION }} \
-            --query taskDefinition \
-            --output json)
+            --query taskDefinition)
 
-          if [ -z "$TASK_DEF_JSON" ]; then
-            echo "Error: Failed to fetch task definition"
-            exit 1
-          fi
+          NEW_TASK=$(echo "$TASK" | jq \
+            --arg BACK "${{ needs.build.outputs.backend_image }}" \
+            --arg FRONT "${{ needs.build.outputs.frontend_image }}" '
+              .containerDefinitions |=
+              map(if .name == "backend-container" then .image = $BACK elif .name == "frontend-container" then .image = $FRONT else . end)
+            ')
 
-          echo "Task definition fetched successfully"
-          
-          # jq를 사용하여 이미지 URI와 환경 변수 업데이트
-          NEW_TASK_DEF=$(echo "$TASK_DEF_JSON" | jq \
-            --arg IMAGE_FRONTEND "$IMAGE_FRONTEND" \
-            --arg IMAGE_BACKEND "$IMAGE_BACKEND" \
-            --arg CONTAINER_FRONTEND "$CONTAINER_FRONTEND" \
-            --arg CONTAINER_BACKEND "$CONTAINER_BACKEND" \
-            --arg REACT_APP_API_URL "$REACT_APP_API_URL" \
-            --arg HYPERCLOVA_API_KEY "$HYPERCLOVA_API_KEY" \
-            --arg PINECONE_API_KEY "$PINECONE_API_KEY" \
-            --arg PINECONE_INDEX_NAME "$PINECONE_INDEX_NAME" \
-            --arg MONGODB_URI "$MONGODB_URI" \
-            --arg MONGODB_DATABASE "$MONGODB_DATABASE" \
-            --arg JWT_SECRET_KEY "$JWT_SECRET_KEY" \
-            --arg JWT_ACCESS_TOKEN_EXPIRE_MINUTES "$JWT_ACCESS_TOKEN_EXPIRE_MINUTES" \
-            --arg SMTP_USER "$SMTP_USER" \
-            --arg SMTP_PASSWORD "$SMTP_PASSWORD" \
-            '
-            def set_env(container_name; key; value):
-              (.containerDefinitions[] | select(.name == container_name)).environment =
-                (
-                  (.containerDefinitions[] | select(.name == container_name) | .environment // [])
-                  | map(select(.name != key))
-                  | . + [{name: key, value: value}]
-                );
+          echo "$NEW_TASK" > new-task.json
 
-            (.containerDefinitions[] | select(.name == $CONTAINER_FRONTEND)).image = $IMAGE_FRONTEND |
-            (.containerDefinitions[] | select(.name == $CONTAINER_BACKEND)).image = $IMAGE_BACKEND |
-            set_env($CONTAINER_FRONTEND; "REACT_APP_API_URL"; $REACT_APP_API_URL) |
-            set_env($CONTAINER_BACKEND; "HYPERCLOVA_API_KEY"; $HYPERCLOVA_API_KEY) |
-            set_env($CONTAINER_BACKEND; "PINECONE_API_KEY"; $PINECONE_API_KEY) |
-            set_env($CONTAINER_BACKEND; "PINECONE_INDEX_NAME"; $PINECONE_INDEX_NAME) |
-            set_env($CONTAINER_BACKEND; "MONGODB_URI"; $MONGODB_URI) |
-            set_env($CONTAINER_BACKEND; "MONGODB_DATABASE"; $MONGODB_DATABASE) |
-            set_env($CONTAINER_BACKEND; "JWT_SECRET_KEY"; $JWT_SECRET_KEY) |
-            set_env($CONTAINER_BACKEND; "JWT_ACCESS_TOKEN_EXPIRE_MINUTES"; $JWT_ACCESS_TOKEN_EXPIRE_MINUTES) |
-            set_env($CONTAINER_BACKEND; "SMTP_USER"; $SMTP_USER) |
-            set_env($CONTAINER_BACKEND; "SMTP_PASSWORD"; $SMTP_PASSWORD) |
-            {
-              family: .family,
-              taskRoleArn: (if .taskRoleArn == null then empty else .taskRoleArn end),
-              executionRoleArn: .executionRoleArn,
-              networkMode: .networkMode,
-              containerDefinitions: .containerDefinitions,
-              volumes: (if .volumes == null then [] else .volumes end),
-              placementConstraints: (if .placementConstraints == null then [] else .placementConstraints end),
-              requiresCompatibilities: (if .requiresCompatibilities == null then [] else .requiresCompatibilities end)
-            }
-          ' )
-          
-          # JSON 유효성 검사 및 파일 저장
-          if ! echo "$NEW_TASK_DEF" | jq empty 2>/dev/null; then
-            echo "Error: Invalid JSON generated"
-            exit 1
-          fi
-          echo "$NEW_TASK_DEF" > /tmp/new-task-definition.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://new-task.json \
+            --query taskDefinition.taskDefinitionArn --output text)
 
-          # Task Definition 등록
-          echo "Registering new task definition..."
-          NEW_REGISTER=$(aws ecs register-task-definition --cli-input-json file:///tmp/new-task-definition.json)
-          
-          if [ $? -ne 0 ]; then
-            echo "Error: Failed to register task definition"
-            exit 1
-          fi
+          echo "arn=$ARN" >> $GITHUB_OUTPUT
 
-          NEW_REVISION_ARN=$(echo "$NEW_REGISTER" | jq -r '.taskDefinition.taskDefinitionArn')
-          
-          if [ -z "$NEW_REVISION_ARN" ] || [ "$NEW_REVISION_ARN" = "null" ]; then
-            echo "Error: Failed to get task definition ARN"
-            echo "Response: $NEW_REGISTER"
-            exit 1
-          fi
-
-          echo "New task definition ARN: $NEW_REVISION_ARN"
-          echo "task_definition_arn=$NEW_REVISION_ARN" >> $GITHUB_OUTPUT
-
-      - name: Update ECS Service
+      - name: Deploy to ECS
         run: |
-          NEW_REVISION_ARN="${{ steps.update-task.outputs.task_definition_arn }}"
-          echo "Updating ECS service ${{ env.ECS_SERVICE_NAME }} with new task definition"
           aws ecs update-service \
-            --cluster $ECS_CLUSTER_NAME \
-            --service $ECS_SERVICE_NAME \
-            --task-definition $NEW_REVISION_ARN
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --service ${{ env.ECS_SERVICE_NAME }} \
+            --task-definition ${{ steps.update.outputs.arn }}
