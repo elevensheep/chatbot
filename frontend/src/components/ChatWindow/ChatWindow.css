@@ -3,7 +3,7 @@
 	flex-direction: column;
 	position: fixed;
 	top: 64px; /* 헤더 높이 */
-	left: -10px; /* 오른쪽으로 이동 */
+	left: -10px; /* 데스크톱 기준 약간 오른쪽으로 이동 */
 	right: 56px; /* 툴바 너비 */
 	bottom: 100px; /* 입력창+푸터 높이 증가 */
 	box-sizing: border-box;
@@ -15,4 +15,18 @@
 /* 사이드바가 열릴 때 채팅창 크기 조정 */
 .cb-chat-window.sidebar-open {
 	right: 416px; /* 툴바(56px) + 사이드바(360px) */
+}
+
+/* 모바일 최적화 */
+@media (max-width: 768px) {
+	.cb-chat-window {
+		left: 0;
+		right: 0;          /* 툴바 영역까지 꽉 채워 사용 */
+		bottom: 96px;      /* 모바일에서 입력창+푸터 높이 감안 */
+		top: 56px;         /* 모바일 브라우저에서 약간 더 낮게 */
+	}
+
+	.cb-chat-window.sidebar-open {
+		right: 0;          /* 사이드바가 오버레이되도록, 채팅창 폭은 유지 */
+	}
 }

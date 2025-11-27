@@ -100,3 +100,28 @@
     color: #fff;
     font-weight: bold;
 }
+
+/* 모바일 최적화: 사이드바를 화면 위에 오버레이 */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 80vw;
+        right: 0;          /* 툴바와 상관없이 화면 오른쪽에서 슬라이드 */
+        top: 0;
+        bottom: 0;
+        z-index: 300;      /* 툴바보다 위에 표시 */
+    }
+
+    .sidebar__menu {
+        padding: 14px;
+    }
+
+    .sidebar__newchat-btn {
+        font-size: 14px;
+        padding: 8px;
+    }
+
+    .sidebar__session {
+        font-size: 14px;
+        padding: 8px;
+    }
+}

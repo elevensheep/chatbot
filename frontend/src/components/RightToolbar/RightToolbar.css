@@ -55,3 +55,20 @@
     height: 16px !important;
     margin: auto !important; /* 중앙 정렬 강제 적용 */
 }
+
+/* 모바일 최적화 */
+@media (max-width: 768px) {
+    .rightbar-toolbar-22 {
+        width: 48px;
+    }
+
+    .rightbar-toolbar-22__btn {
+        width: 40px;
+        height: 44px;
+    }
+
+    .rightbar-toolbar-22__icon {
+        width: 28px;
+        height: 28px;
+    }
+}
