@@ -27,16 +27,19 @@ export default function Login({ onLogin, onSignup, onBack, onFindPassword }) {
       console.log('로그인 응답:', response);
 
       // 로그인 성공시 토큰을 localStorage에 저장
-      // 백엔드는 { success: true, data: { access_token, user } } 형식으로 반환
+      // 백엔드는 { success: true, data: { access_token, refresh_token, user } } 형식으로 반환
       const accessToken = response.data?.access_token || response.access_token;
+      const refreshToken = response.data?.refresh_token || response.refresh_token;
       const userData = response.data?.user || response.user;
 
-      console.log('추출된 토큰:', accessToken);
+      console.log('추출된 Access Token:', accessToken);
+      console.log('추출된 Refresh Token:', refreshToken);
       console.log('추출된 사용자 정보:', userData);
 
       if (accessToken) {
         localStorage.setItem('authToken', accessToken);
         localStorage.setItem('access_token', accessToken); // API 호출용
+        localStorage.setItem('refresh_token', refreshToken); // Refresh Token 저장
         localStorage.setItem('userEmail', email);
 
         // 사용자 정보도 저장
