@@ -182,6 +182,19 @@ class PasswordResetConfirm(BaseModel):
     )
 
 
+class RefreshTokenRequest(BaseModel):
+    """Refresh Token 요청 모델"""
+    refresh_token: str = Field(..., description="Refresh Token")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            }
+        }
+    )
+
+
 class UserInDB(BaseModel):
     """데이터베이스에 저장되는 사용자 모델"""
     student_id: str

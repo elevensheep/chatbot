@@ -209,11 +209,13 @@ export default function Signup({ onSignup, onBack }) {
         // 회원가입한 이메일과 비밀번호로 자동 로그인
         const loginResponse = await authAPI.login(fullEmail, password);
         const accessToken = loginResponse.data?.access_token || loginResponse.access_token;
+        const refreshToken = loginResponse.data?.refresh_token || loginResponse.refresh_token;
         const userData = loginResponse.data?.user || loginResponse.user;
 
         if (accessToken) {
           localStorage.setItem('authToken', accessToken);
           localStorage.setItem('access_token', accessToken);
+          localStorage.setItem('refresh_token', refreshToken);
           localStorage.setItem('userEmail', fullEmail);
           if (userData) {
             localStorage.setItem('user', JSON.stringify(userData));

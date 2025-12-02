@@ -12,7 +12,7 @@ import RightToolbar from './components/RightToolbar/RightToolbar';
 import Footer from './components/Footer/Footer';
 import StudyPlan from './components/StudyPlan/StudyPlan';
 import { LoadingOverlay } from './components/LoadingSpinner/LoadingSpinner';
-import { getConversations, createConversation, getMessages, sendMessage as sendMessageAPI } from './utils/api';
+import { getConversations, createConversation, getMessages, sendMessage as sendMessageAPI, deleteConversation } from './utils/api';
 
 
 // 고유한 메시지 ID 생성 함수
@@ -137,7 +137,7 @@ function MainApp() {
     }
   };
 
-  // 처음 진입 시(로그인 후) 항상 새 채팅방을 하나 생성해서 시작
+  // 처음 진입 시(로그인 후) 대화방 목록만 불러오기 (자동 생성하지 않음)
   useEffect(() => {
     const loggedIn =
       (!!localStorage.getItem('authToken') && !!localStorage.getItem('access_token')) ||
@@ -145,7 +145,7 @@ function MainApp() {
 
     if (!hasInitializedNewChatRef.current && loggedIn) {
       hasInitializedNewChatRef.current = true;
-      handleNewChat();
+      // 자동으로 새 채팅방 생성하지 않음 - 사용자가 메시지를 보낼 때만 생성
     }
   }, [user]);
 
@@ -317,6 +317,33 @@ function MainApp() {
     }
   };
 
+  // 채팅방 삭제 핸들러
+  const handleDeleteConversation = async (conversationId) => {
+    try {
+      setIsLoading(true);
+      setLoadingMessage('채팅방을 삭제하는 중...');
+
+      // 백엔드 API 호출
+      await deleteConversation(conversationId);
+
+      // 로컬 상태에서 채팅방 제거
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      setSessions(prev => prev.filter(session => session.conversationId !== conversationId));
+
+      // 삭제한 채팅방이 현재 선택된 채팅방이면 선택 해제
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null);
+      }
+
+    } catch (error) {
+      console.error('채팅방 삭제 실패:', error);
+      alert('채팅방 삭제에 실패했습니다: ' + error.message);
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
   // 챗봇 UI
   return (
     <div className="app-bg">
@@ -334,6 +361,7 @@ function MainApp() {
         currentConversationId={currentConversationId}
         onSelectConversation={loadConversationMessages}
         onNewChat={handleNewChat}
+        onDeleteConversation={handleDeleteConversation}
         onLogout={() => {
           setUser(null);
           setConversations([]);
