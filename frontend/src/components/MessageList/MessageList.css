@@ -13,3 +13,10 @@
 	background: #eee; 
 	border-radius: 6px; 
 }
+
+/* 모바일 최적화 */
+@media (max-width: 768px) {
+	.cb-message-list {
+		padding: 16px 16px 80px 16px; /* 하단 입력창/푸터 고려 */
+	}
+}

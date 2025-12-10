@@ -28,6 +28,18 @@ export default function StudyPlan() {
 
   const [savedPlans, setSavedPlans] = useState([]); // 여러 수업계획서 저장
   const [selectedPlanId, setSelectedPlanId] = useState(null);
+
+  // 주차별 수업계획 (1~15주차)
+  const makeDefaultWeeklyPlans = () => (
+    Array.from({ length: 15 }, (_, idx) => ({
+      week: idx + 1,
+      topic: '',
+      method: '',
+      strategy: ''
+    }))
+  );
+
+  const [weeklyPlans, setWeeklyPlans] = useState(makeDefaultWeeklyPlans());
   
   // 교과목역량 분야 배열
   const [competencyFields, setCompetencyFields] = useState([
@@ -72,6 +84,15 @@ export default function StudyPlan() {
     );
   };
 
+  // 주차별 수업계획 변경 핸들러
+  const handleWeeklyPlanChange = (week, field, value) => {
+    setWeeklyPlans(prev =>
+      prev.map(item =>
+        item.week === week ? { ...item, [field]: value } : item
+      )
+    );
+  };
+
   // 교과목역량 분야 추가
   const addCompetencyField = () => {
     const newId = Math.max(...competencyFields.map(f => f.id)) + 1;
@@ -110,6 +131,7 @@ export default function StudyPlan() {
       title: formData.courseCode,
       data: {...formData},
       competencyFields: [...competencyFields],
+      weeklyPlans: [...weeklyPlans],
       createdAt: new Date().toLocaleString()
     };
     
@@ -131,6 +153,12 @@ export default function StudyPlan() {
       // 교과목역량 필드들도 업데이트
       if (selectedPlan.competencyFields) {
         setCompetencyFields(selectedPlan.competencyFields);
+      }
+      // 주차별 수업계획도 업데이트 (없으면 기본값)
+      if (selectedPlan.weeklyPlans && selectedPlan.weeklyPlans.length === 15) {
+        setWeeklyPlans(selectedPlan.weeklyPlans);
+      } else {
+        setWeeklyPlans(makeDefaultWeeklyPlans());
       }
     }
   };
@@ -187,6 +215,7 @@ export default function StudyPlan() {
       }
     ]);
     setSelectedPlanId(null);
+    setWeeklyPlans(makeDefaultWeeklyPlans());
   };
 
   return (
@@ -483,6 +512,56 @@ export default function StudyPlan() {
             rows={4}
           />
         </div>
+
+        {/* 주차별 수업계획 */}
+        <div className="section-title">주차별 수업계획 (1~15주차)</div>
+        <table className="weekly-plan-table">
+          <thead>
+            <tr>
+              <th className="week-col">주차</th>
+              <th>수업주제 및 내용</th>
+              <th>수업방법</th>
+              <th>학생성장(역량제고) 전략</th>
+            </tr>
+          </thead>
+          <tbody>
+            {weeklyPlans.map((plan) => (
+              <tr key={plan.week}>
+                <td className="week-col">{plan.week}주차</td>
+                <td>
+                  <textarea
+                    value={plan.topic}
+                    onChange={(e) =>
+                      handleWeeklyPlanChange(plan.week, 'topic', e.target.value)
+                    }
+                    rows={2}
+                    placeholder="예) 교과목 소개 및 수업 운영 안내"
+                  />
+                </td>
+                <td>
+                  <textarea
+                    value={plan.method}
+                    onChange={(e) =>
+                      handleWeeklyPlanChange(plan.week, 'method', e.target.value)
+                    }
+                    rows={2}
+                    placeholder="예) 강의, 토의, 실습 등"
+                  />
+                </td>
+                <td>
+                  <textarea
+                    value={plan.strategy}
+                    onChange={(e) =>
+                      handleWeeklyPlanChange(plan.week, 'strategy', e.target.value)
+                    }
+                    rows={2}
+                    placeholder="예) 피드백 제공, 협동학습, 프로젝트 기반 학습 등"
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {/* 하단 안내 문구 */}
         <div className="footer-notice">

@@ -2,7 +2,7 @@
 .cb-message-input {
 	position: fixed;
 	left: 0; /* 원래대로 되돌림 */
-	right: 50px; /* 사이드바 너비만큼 띄움 */
+	right: 50px; /* 데스크톱 기준: 툴바 영역만 비움 */
 	bottom: 38px; /* Footer 높이만큼 띄움 */
 	padding: 12px 16px 12px 0;
 	border-top: 1px solid #f3f3f3;
@@ -74,4 +74,36 @@
 	color:#c2c9d1;
 	font-size:12px;
 	margin-top:8px;
+}
+
+/* 모바일 최적화 */
+@media (max-width: 768px) {
+	.cb-message-input {
+		left: 0;
+		right: 0;          /* 모바일에서는 전체 폭 사용 */
+		bottom: 48px;      /* 모바일 브라우저에서 약간 더 여유 */
+		padding: 8px 10px;
+	}
+
+	.cb-message-input.sidebar-open {
+		right: 0;          /* 사이드바는 오버레이이므로 입력창 폭 유지 */
+	}
+
+	.cb-input-wrap {
+		margin-left: 0;
+		border-radius: 12px;
+	}
+
+	.cb-message-input textarea {
+		max-width: 100%;
+		min-height: 40px;
+		font-size: 13px;
+		padding: 10px 44px 10px 12px;
+	}
+
+	.cb-send {
+		width: 40px;
+		height: 40px;
+		right: 10px;
+	}
 }

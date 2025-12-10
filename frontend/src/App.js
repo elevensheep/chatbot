@@ -12,7 +12,7 @@ import RightToolbar from './components/RightToolbar/RightToolbar';
 import Footer from './components/Footer/Footer';
 import StudyPlan from './components/StudyPlan/StudyPlan';
 import { LoadingOverlay } from './components/LoadingSpinner/LoadingSpinner';
-import { getConversations, createConversation, getMessages, sendMessage as sendMessageAPI } from './utils/api';
+import { getConversations, createConversation, getMessages, sendMessage as sendMessageAPI, deleteConversation } from './utils/api';
 
 
 // 고유한 메시지 ID 생성 함수
@@ -42,6 +42,7 @@ function MainApp() {
   });
   const [currentSessionIdx, setCurrentSessionIdx] = useState(0);
   const currentSessionIdxRef = useRef(currentSessionIdx);
+  const hasInitializedNewChatRef = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingSession, setPendingSession] = useState(null);
   const [user, setUser] = useState(() => {
@@ -67,11 +68,6 @@ function MainApp() {
     try {
       const convs = await getConversations();
       setConversations(convs || []);
-      
-      // 첫 번째 채팅방이 있으면 자동으로 로드
-      if (convs && convs.length > 0 && !currentConversationId) {
-        await loadConversationMessages(convs[0].id);
-      }
     } catch (error) {
       console.error('채팅방 목록 로드 실패:', error);
     }
@@ -141,8 +137,21 @@ function MainApp() {
     }
   };
 
+  // 처음 진입 시(로그인 후) 대화방 목록만 불러오기 (자동 생성하지 않음)
+  useEffect(() => {
+    const loggedIn =
+      (!!localStorage.getItem('authToken') && !!localStorage.getItem('access_token')) ||
+      !!user;
+
+    if (!hasInitializedNewChatRef.current && loggedIn) {
+      hasInitializedNewChatRef.current = true;
+      // 자동으로 새 채팅방 생성하지 않음 - 사용자가 메시지를 보낼 때만 생성
+    }
+  }, [user]);
+
   // 로그인 상태 확인 (localStorage와 user 상태 모두 체크)
-  const isLoggedIn = (!!localStorage.getItem('authToken') && !!localStorage.getItem('access_token')) || !!user;
+  const isLoggedIn =
+    (!!localStorage.getItem('authToken') && !!localStorage.getItem('access_token')) || !!user;
   if (!isLoggedIn) {
     if (showFindPassword) {
       return (
@@ -308,6 +317,33 @@ function MainApp() {
     }
   };
 
+  // 채팅방 삭제 핸들러
+  const handleDeleteConversation = async (conversationId) => {
+    try {
+      setIsLoading(true);
+      setLoadingMessage('채팅방을 삭제하는 중...');
+
+      // 백엔드 API 호출
+      await deleteConversation(conversationId);
+
+      // 로컬 상태에서 채팅방 제거
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      setSessions(prev => prev.filter(session => session.conversationId !== conversationId));
+
+      // 삭제한 채팅방이 현재 선택된 채팅방이면 선택 해제
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null);
+      }
+
+    } catch (error) {
+      console.error('채팅방 삭제 실패:', error);
+      alert('채팅방 삭제에 실패했습니다: ' + error.message);
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
   // 챗봇 UI
   return (
     <div className="app-bg">
@@ -325,6 +361,7 @@ function MainApp() {
         currentConversationId={currentConversationId}
         onSelectConversation={loadConversationMessages}
         onNewChat={handleNewChat}
+        onDeleteConversation={handleDeleteConversation}
         onLogout={() => {
           setUser(null);
           setConversations([]);
@@ -366,7 +403,15 @@ function MainApp() {
 // 독립적인 로그인 컴포넌트
 function LoginPage() {
   const navigate = useNavigate();
-  
+
+  // 이미 로그인된 상태라면 로그인 페이지 대신 메인으로 리다이렉트
+  const isLoggedIn =
+    (!!localStorage.getItem('authToken') && !!localStorage.getItem('access_token')) ||
+    !!localStorage.getItem('userEmail');
+  if (isLoggedIn) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <Login
       onLogin={email => {
@@ -407,8 +452,8 @@ function App() {
       <Routes>
         <Route path="/" element={<MainApp />} />
         <Route path="/login" element={<LoginPage />} />
-  <Route path="/signup" element={<SignupPage />} />
-  <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

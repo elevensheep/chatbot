@@ -4,6 +4,55 @@
 // nginx의 location /api/는 /api로 시작하는 모든 경로를 매칭하므로 /api만 사용해도 됨
 const API_BASE_URL = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5000/api';
 
+// Refresh Token으로 Access Token 갱신
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+
+  failedQueue = [];
+};
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem('refresh_token');
+
+  if (!refreshToken) {
+    throw new Error('No refresh token available');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ refresh_token: refreshToken })
+  });
+
+  if (!response.ok) {
+    throw new Error('Token refresh failed');
+  }
+
+  const data = await response.json();
+  const newAccessToken = data.data?.access_token || data.access_token;
+
+  if (!newAccessToken) {
+    throw new Error('No access token in refresh response');
+  }
+
+  // 새 토큰 저장
+  localStorage.setItem('access_token', newAccessToken);
+  localStorage.setItem('authToken', newAccessToken);
+
+  return newAccessToken;
+}
+
 // API 호출 유틸리티 함수
 export const apiCall = async (endpoint, options = {}) => {
   // endpoint가 /로 시작하므로 그대로 연결 (예: /api + /auth/login = /api/auth/login)
@@ -46,6 +95,67 @@ export const apiCall = async (endpoint, options = {}) => {
     console.log('응답 상태:', response.status, response.statusText);
 
     if (!response.ok) {
+      // 401 에러이고 Refresh Token이 있으면 갱신 시도
+      if (response.status === 401 && localStorage.getItem('refresh_token')) {
+        // /auth/refresh 엔드포인트는 재시도하지 않음 (무한 루프 방지)
+        if (endpoint !== '/auth/refresh') {
+          if (isRefreshing) {
+            // 이미 갱신 중이면 큐에 추가
+            return new Promise((resolve, reject) => {
+              failedQueue.push({ resolve, reject });
+            }).then(token => {
+              // 새 토큰으로 재시도
+              const retryConfig = {
+                ...config,
+                headers: {
+                  ...config.headers,
+                  'Authorization': `Bearer ${token}`
+                }
+              };
+              return fetch(url, retryConfig).then(res => res.json());
+            });
+          }
+
+          isRefreshing = true;
+
+          try {
+            const newAccessToken = await refreshAccessToken();
+            isRefreshing = false;
+            processQueue(null, newAccessToken);
+
+            // 새 토큰으로 원래 요청 재시도
+            const retryConfig = {
+              ...config,
+              headers: {
+                ...config.headers,
+                'Authorization': `Bearer ${newAccessToken}`
+              }
+            };
+
+            const retryResponse = await fetch(url, retryConfig);
+            if (retryResponse.ok) {
+              return await retryResponse.json();
+            }
+          } catch (refreshError) {
+            isRefreshing = false;
+            processQueue(refreshError, null);
+
+            // Refresh Token도 만료되었으면 로그아웃
+            console.error('토큰 갱신 실패:', refreshError);
+            localStorage.clear();
+            window.location.href = '/login';
+            throw new Error('세션이 만료되었습니다. 다시 로그인해주세요.');
+          }
+        }
+      }
+
+      // 401 에러이지만 Refresh Token이 없거나 갱신 실패한 경우
+      if (response.status === 401) {
+        localStorage.clear();
+        window.location.href = '/login';
+        throw new Error('세션이 만료되었습니다. 다시 로그인해주세요.');
+      }
+
       const errorData = await response.json().catch(() => ({}));
 
       // 백엔드 에러 응답 구조 처리
@@ -234,6 +344,19 @@ export const sendMessage = async (conversationId, query, k = 5, includeSources =
   });
   // 백엔드 응답 구조: { success: true, data: {...} }
   return response.data || response;
+};
+
+// 대화방 삭제
+export const deleteConversation = async (conversationId) => {
+  const token = localStorage.getItem('access_token');
+  const response = await apiCall(`/conversations/${conversationId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  // 백엔드 응답 구조: { success: true, message: "..." }
+  return response;
 };
 
 export { API_BASE_URL };

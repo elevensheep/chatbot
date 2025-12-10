@@ -1,7 +1,14 @@
 import React from 'react';
 import './Sidebar.css';
 
-export default function Sidebar({ open, conversations = [], currentConversationId, onSelectConversation, onNewChat, onLogout }) {
+export default function Sidebar({ open, conversations = [], currentConversationId, onSelectConversation, onNewChat, onDeleteConversation, onLogout }) {
+  const handleDelete = (e, conversationId) => {
+    e.stopPropagation(); // 채팅방 선택 이벤트 방지
+    if (window.confirm('이 대화를 삭제하시겠습니까?')) {
+      onDeleteConversation(conversationId);
+    }
+  };
+
   return (
     <div className={`sidebar${open ? ' sidebar--open' : ''}`}> 
       <div className="sidebar__menu">
@@ -29,31 +36,42 @@ export default function Sidebar({ open, conversations = [], currentConversationI
                   onClick={() => onSelectConversation(conversation.id)}
                   title={conversation.title}
                 >
-                  <div style={{ 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis', 
-                    whiteSpace: 'nowrap',
-                    fontWeight: isActive ? 600 : 400
-                  }}>
-                    {conversation.title || '새 대화'}
-                  </div>
-                  {conversation.updated_at && (
-                    <div style={{ 
-                      fontSize: '12px', 
-                      color: '#999', 
-                      marginTop: '4px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {new Date(conversation.updated_at).toLocaleDateString('ko-KR', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontWeight: isActive ? 600 : 400
+                      }}>
+                        {conversation.title || '새 대화'}
+                      </div>
+                      {conversation.updated_at && (
+                        <div style={{
+                          fontSize: '12px',
+                          color: isActive ? 'rgba(255,255,255,0.8)' : '#999',
+                          marginTop: '4px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {new Date(conversation.updated_at).toLocaleDateString('ko-KR', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <button
+                      className="sidebar__delete-btn"
+                      onClick={(e) => handleDelete(e, conversation.id)}
+                      title="대화 삭제"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               );
             })

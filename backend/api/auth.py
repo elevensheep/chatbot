@@ -9,10 +9,11 @@ import logging
 from domain.auth.model import (
     UserSignup, UserLogin, UserResponse,
     EmailVerificationRequest, EmailVerificationConfirm,
-    PasswordResetRequest, PasswordResetConfirm
+    PasswordResetRequest, PasswordResetConfirm,
+    RefreshTokenRequest
 )
 from infrastructure.database import Collections, db_instance
-from domain.auth.utils import hash_password, verify_password, create_access_token
+from domain.auth.utils import hash_password, verify_password, create_access_token, create_refresh_token, decode_access_token
 from infrastructure.config import settings
 from domain.auth.email import generate_verification_code, generate_password_reset_code, save_verification_token, verify_token, verify_code, send_verification_email
 
@@ -310,9 +311,12 @@ async def login(credentials: UserLogin):
                 }
             )
 
-        # 4. JWT 토큰 생성
+        # 4. JWT 토큰 생성 (Access Token + Refresh Token)
         access_token = create_access_token(
             data={"sub": str(user["_id"]), "email": user["email"]}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user["_id"])}
         )
 
         logger.info(f"사용자 로그인 성공: {credentials.email}")
@@ -322,6 +326,7 @@ async def login(credentials: UserLogin):
             "success": True,
             "data": {
                 "access_token": access_token,
+                "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # 초 단위
                 "user": {
@@ -542,6 +547,117 @@ async def confirm_password_reset(request: PasswordResetConfirm):
                 "error": {
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "비밀번호 재설정 처리 중 오류가 발생했습니다",
+                    "details": str(e)
+                }
+            }
+        )
+
+
+@router.post(
+    "/refresh",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Access Token 갱신",
+    description="Refresh Token을 사용하여 새로운 Access Token을 발급받습니다."
+)
+async def refresh_token_endpoint(request: RefreshTokenRequest):
+    """
+    토큰 갱신 엔드포인트
+
+    - **refresh_token**: Refresh Token
+    """
+    try:
+        # 1. Refresh Token 검증
+        payload = decode_access_token(request.refresh_token)
+
+        if not payload:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "유효하지 않거나 만료된 Refresh Token입니다",
+                        "details": "다시 로그인해주세요"
+                    }
+                }
+            )
+
+        # 2. Refresh Token 타입 확인
+        if payload.get("type") != "refresh":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "잘못된 토큰 타입입니다",
+                        "details": "Refresh Token이 필요합니다"
+                    }
+                }
+            )
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "토큰에 사용자 정보가 없습니다",
+                        "details": "다시 로그인해주세요"
+                    }
+                }
+            )
+
+        # 3. 사용자 존재 여부 확인 (선택사항, 보안 강화)
+        users_collection = db_instance.get_collection(Collections.USERS)
+        user = await users_collection.find_one({"_id": ObjectId(user_id)})
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "사용자를 찾을 수 없습니다",
+                        "details": "다시 로그인해주세요"
+                    }
+                }
+            )
+
+        # 4. 새 Access Token 발급
+        new_access_token = create_access_token(
+            data={"sub": user_id, "email": user["email"]}
+        )
+
+        logger.info(f"토큰 갱신 성공: {user['email']}")
+
+        # 5. 응답 생성
+        return {
+            "success": True,
+            "data": {
+                "access_token": new_access_token,
+                "token_type": "bearer",
+                "expires_in": settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            },
+            "message": "토큰이 갱신되었습니다"
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        logger.error(f"토큰 갱신 처리 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "토큰 갱신 중 오류가 발생했습니다",
                     "details": str(e)
                 }
             }
